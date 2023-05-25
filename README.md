@@ -1,3 +1,4 @@
+[![CI](https://github.com/CAB-Lab-Princeton/hgan/actions/workflows/main.yml/badge.svg)](https://github.com/CAB-Lab-Princeton/hgan/actions/workflows/main.yml)
 # hGAN: Interpretable dynamics from images of a mechanical system
 
 A work in progress ...
