@@ -10,11 +10,7 @@ from hgan.demo import main as demo
 from hgan.run import main as run
 from hgan.configuration import show_config
 
-commands = {
-    "demo": demo,
-    "run": run,
-    "show-config": show_config
-}
+commands = {"demo": demo, "run": run, "show-config": show_config}
 
 
 def print_usage():
