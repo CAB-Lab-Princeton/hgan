@@ -18,6 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get install ffmpeg
+
       - name: Upgrade setuptools
         run: |
           pip3 install wheel --upgrade
