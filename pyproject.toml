@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0", "setuptools_scm>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hgan"
+dynamic = ["version"]
+authors = [
+  { name="Christine Allen-Blanchette", email="ca15@princeton.edu" },
+  { name="Vineet Bansal", email="vineetb@princeton.edu" }
+]
+description = "A package to infer interpretable dynamics from images of a mechanical system."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: POSIX :: Linux",
+]
+dependencies = [
+    "scikit-image",
+    "scikit-video",
+    "numpy",
+    "tensorflow",
+    "torch"
+]
+
+[project.optional-dependencies]
+dev = [
+    "coverage",
+    "mock",
+    "myst_parser",
+    "numpydoc",
+    "pre-commit",
+    "pytest>=6",
+    "pytest-cov",
+    "recommonmark",
+    "sphinx",
+    "sphinxcontrib-bibtex<2.0.0",
+    "sphinx-rtd-theme"
+]
+
+[project.scripts]
+hgan = "hgan.__main__:main"
+
+[project.urls]
+"Homepage" = "https://github.com/CAB-Lab-Princeton/hgan"
+
+[tool.setuptools_scm]
+write_to = "src/hgan/_version.py"
+
+[tool.setuptools]
+zip-safe = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["hgan*"]
+
+[tool.setuptools.package-data]
+hgan = ["configuration.ini"]
+"hgan.data" = ["*"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-rA"
+testpaths = [
+    "tests"
+]

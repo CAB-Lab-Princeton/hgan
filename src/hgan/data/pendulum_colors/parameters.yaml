@@ -1,0 +1,4 @@
+{dataset: {img_size: 32, num_test_samples: 2, num_train_samples: 8, radius_bound: auto,
+    rollout: {delta_time: 0.125, n_channels: 3, noise_level: 1, seq_length: 34}, test_data: datasets/pendulum_colors/test,
+    train_data: datasets/pendulum_colors/train}, environment: {g: 3, length: 1, mass: 0.5,
+    name: Pendulum}}
