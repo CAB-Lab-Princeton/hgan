@@ -8,8 +8,6 @@ import numpy as np
 
 
 def setup_reproducibility(seed):
-    import torch
-
     torch.manual_seed(seed)
     np.random.seed(seed)
 
