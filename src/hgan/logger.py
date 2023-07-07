@@ -75,44 +75,82 @@ def get_state_paths(trained_models_dir, rnn_type, max_saved_epoch):
     return optim_paths
 
 
-def restore_ckpt(args, models, optim):
-    # get most recent ckpt
-    ckpt_filenames = glob.glob(
-        os.path.join(args.trained_models_dir, "*Discriminator_I_epoch*.model")
-    )
-    saved_epochs = []
-    for f in ckpt_filenames:
-        saved_epochs.append(int(re.sub(r"\D", "", f.split("/")[-1])))
+def load(models, optim, trained_models_dir, retrain=False, device="cpu"):
 
-    max_saved_epoch = 0 if len(saved_epochs) == 0 else max(saved_epochs)
+    model_dir = trained_models_dir + "/models"
+    models_saved = os.path.exists(model_dir)
 
-    if max_saved_epoch > 0:  # saved ckpts
-        models, optim = load_ckpt(args, models, optim, max_saved_epoch)
+    if models_saved:
+        models = {
+            "Di": torch.load(f"{model_dir}/model-Di.pth"),
+            "Dv": torch.load(f"{model_dir}/model-Dv.pth"),
+            "Gi": torch.load(f"{model_dir}/model-Gi.pth"),
+            "RNN": torch.load(f"{model_dir}/model-RNN.pth"),
+        }
+        optim = {
+            "Di": torch.load(f"{model_dir}/optim-Di.pth"),
+            "Dv": torch.load(f"{model_dir}/optim-Dv.pth"),
+            "Gi": torch.load(f"{model_dir}/optim-Gi.pth"),
+            "RNN": torch.load(f"{model_dir}/optim-RNN.pth"),
+        }
+    else:
+        os.makedirs(model_dir)
+
+        torch.save(models["Di"], f"{model_dir}/model-Di.pth")
+        torch.save(models["Dv"], f"{model_dir}/model-Dv.pth")
+        torch.save(models["Gi"], f"{model_dir}/model-Gi.pth")
+        torch.save(models["RNN"], f"{model_dir}/model-RNN.pth")
+
+        torch.save(optim["Di"], f"{model_dir}/optim-Di.pth")
+        torch.save(optim["Dv"], f"{model_dir}/optim-Dv.pth")
+        torch.save(optim["Gi"], f"{model_dir}/optim-Gi.pth")
+        torch.save(optim["RNN"], f"{model_dir}/optim-RNN.pth")
+
+    if retrain:
+        ckpt_filenames = glob.glob(
+            os.path.join(trained_models_dir, "*Discriminator_I_epoch*.model")
+        )
+        saved_epochs = []
+        for f in ckpt_filenames:
+            saved_epochs.append(int(re.sub(r"\D", "", f.split("/")[-1])))
+
+        max_saved_epoch = 0 if len(saved_epochs) == 0 else max(saved_epochs)
+
+        if max_saved_epoch > 0:
+            models, optim = load_ckpt(
+                models,
+                optim,
+                max_saved_epoch,
+                trained_models_dir=trained_models_dir,
+                device=device,
+            )
+    else:
+        max_saved_epoch = -1
 
     return models, optim, max_saved_epoch
 
 
-def load_ckpt(args, models, optims, max_saved_epoch):
+def load_ckpt(models, optims, max_saved_epoch, trained_models_dir, device="cpu"):
     rnn_type = models["RNN"].__class__.__name__
 
-    model_paths = get_model_paths(args.trained_models_dir, rnn_type, max_saved_epoch)
-    models = load_models(args, models, model_paths)
+    model_paths = get_model_paths(trained_models_dir, rnn_type, max_saved_epoch)
+    models = load_models(models, model_paths, device=device)
 
-    optim_paths = get_state_paths(args.trained_models_dir, rnn_type, max_saved_epoch)
-    optims = load_optims(args, optims, optim_paths)
+    optim_paths = get_state_paths(trained_models_dir, rnn_type, max_saved_epoch)
+    optims = load_optims(optims, optim_paths, device=device)
 
     return models, optims
 
 
-def load_models(args, models, model_paths):
+def load_models(models, model_paths, device="cpu"):
     for k in models.keys():
-        models[k].load_state_dict(torch.load(model_paths[k], map_location=args.device))
+        models[k].load_state_dict(torch.load(model_paths[k], map_location=device))
 
     return models
 
 
-def load_optims(args, optims, optim_paths):
+def load_optims(optims, optim_paths, device="cpu"):
     for k in optims.keys():
-        optims[k].load_state_dict(torch.load(optim_paths[k], map_location=args.device))
+        optims[k].load_state_dict(torch.load(optim_paths[k], map_location=device))
 
     return optims

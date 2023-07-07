@@ -5,3 +5,11 @@ try:
 except ModuleNotFoundError:
     # We're likely running as a source package without installation
     __version__ = "vSource"
+
+
+import logging
+
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d - %(message)s",
+    level=logging.INFO,
+)

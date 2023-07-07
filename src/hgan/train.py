@@ -1,12 +1,12 @@
 import time
-
 from torch import optim
-
+import wandb
 from hgan.models import build_models
 from hgan.updates import update_models
 from hgan.dataset import get_real_data, get_fake_data, build_dataloader
-from hgan.logger import restore_ckpt, save_checkpoint, save_video
+from hgan.logger import load, save_checkpoint, save_video
 from hgan.utils import setup_reproducibility, timeSince
+from hgan.configuration import config
 
 
 def build_optimizers(args, models):
@@ -48,16 +48,39 @@ def train_step(args, videos_dataloader, models, optims):
 def train(args, models, videos_dataloader, retrain=False):
     optims = build_optimizers(args, models)
 
-    if not retrain:
-        # load most recent chekpoint
-        models, optims, max_saved_epoch = restore_ckpt(args, models, optims)
-    else:
-        max_saved_epoch = -1
+    wandb.init(
+        project="hgan",
+        config={
+            "learning_rate": args.lr,
+            "rnn_type": args.rnn_type,
+            "seed": args.seed,
+            "batch_size": args.batch_size,
+            "betas": args.betas,
+        },
+    )
+
+    models, optims, max_saved_epoch = load(
+        models,
+        optims,
+        trained_models_dir=args.trained_models_dir,
+        retrain=retrain,
+        device=args.device,
+    )
 
     start_time = time.time()
 
     for epoch in range(max_saved_epoch + 1, args.niter + 1):
         err, mean, fake_videos = train_step(args, videos_dataloader, models, optims)
+
+        wandb.log(
+            {
+                "loss_Di": err["Di"],
+                "loss_Dv": err["Dv"],
+                "loss_Gi": err["Gi"],
+                "loss_Gv": err["Gv"],
+                "time": time.time() - start_time,
+            }
+        )
 
         # logging
         if epoch % args.print == 0:
@@ -89,6 +112,8 @@ def train(args, models, videos_dataloader, retrain=False):
             for k in models.keys():
                 save_checkpoint(args, models[k], optims[k], epoch)
 
+    wandb.finish()
+
 
 def run_experiment(
     args, run_train=True, retrain=False, return_net=False, shuffle=True, drop_last=True
@@ -96,4 +121,4 @@ def run_experiment(
     setup_reproducibility(args.seed)
     videos_dataloader = build_dataloader(args)
     models = build_models(args)
-    train(args, models, videos_dataloader, retrain=retrain)
+    train(args, models, videos_dataloader, retrain=config.experiment.retrain)

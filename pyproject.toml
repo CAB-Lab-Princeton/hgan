@@ -37,7 +37,9 @@ dev = [
     "recommonmark",
     "sphinx",
     "sphinxcontrib-bibtex<2.0.0",
-    "sphinx-rtd-theme"
+    "sphinx-rtd-theme",
+    "tqdm",
+    "wandb"
 ]
 
 [project.scripts]
