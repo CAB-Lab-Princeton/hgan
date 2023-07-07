@@ -48,16 +48,19 @@ def train_step(args, videos_dataloader, models, optims):
 def train(args, models, videos_dataloader, retrain=False):
     optims = build_optimizers(args, models)
 
-    wandb.init(
-        project="hgan",
-        config={
-            "learning_rate": args.lr,
-            "rnn_type": args.rnn_type,
-            "seed": args.seed,
-            "batch_size": args.batch_size,
-            "betas": args.betas,
-        },
-    )
+    enable_wandb = config.experiment.wandb_api_key is not None
+    if enable_wandb:
+        wandb.login(key=config.experiment.wandb_api_key)
+        wandb.init(
+            project="hgan",
+            config={
+                "learning_rate": args.lr,
+                "rnn_type": args.rnn_type,
+                "seed": args.seed,
+                "batch_size": args.batch_size,
+                "betas": args.betas,
+            },
+        )
 
     models, optims, max_saved_epoch = load(
         models,
@@ -72,15 +75,16 @@ def train(args, models, videos_dataloader, retrain=False):
     for epoch in range(max_saved_epoch + 1, args.niter + 1):
         err, mean, fake_videos = train_step(args, videos_dataloader, models, optims)
 
-        wandb.log(
-            {
-                "loss_Di": err["Di"],
-                "loss_Dv": err["Dv"],
-                "loss_Gi": err["Gi"],
-                "loss_Gv": err["Gv"],
-                "time": time.time() - start_time,
-            }
-        )
+        if enable_wandb:
+            wandb.log(
+                {
+                    "loss_Di": err["Di"],
+                    "loss_Dv": err["Dv"],
+                    "loss_Gi": err["Gi"],
+                    "loss_Gv": err["Gv"],
+                    "time": time.time() - start_time,
+                }
+            )
 
         # logging
         if epoch % args.print == 0:
@@ -112,7 +116,8 @@ def train(args, models, videos_dataloader, retrain=False):
             for k in models.keys():
                 save_checkpoint(args, models[k], optims[k], epoch)
 
-    wandb.finish()
+    if enable_wandb:
+        wandb.finish()
 
 
 def run_experiment(
