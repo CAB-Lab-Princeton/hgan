@@ -128,8 +128,38 @@ class ToyPhysicsDatasetNPZ(Dataset):
         self.files = glob.glob(os.path.join(self.datapath, "*.npz"))
 
         # TODO: Where do these come from?
-        # self.video_lengths = [39, 112, 101, 120, 43, 56, 64, 68, 36, 92, 36, 38, 84, 111, 56, 67, 119, 88, 68, 57, 50, 52, 42, 85, 76, 77, 37, 41, 48, 60]
-        self.video_lengths = [200] * 30
+        self.video_lengths = [
+            39,
+            112,
+            101,
+            120,
+            43,
+            56,
+            64,
+            68,
+            36,
+            92,
+            36,
+            38,
+            84,
+            111,
+            56,
+            67,
+            119,
+            88,
+            68,
+            57,
+            50,
+            52,
+            42,
+            85,
+            76,
+            77,
+            37,
+            41,
+            48,
+            60,
+        ]
 
     def __len__(self):
         return len(self.files)
