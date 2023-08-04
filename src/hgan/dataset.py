@@ -1,13 +1,14 @@
 import os
 import glob
-
 import skvideo.io
 from skimage.transform import resize
 import numpy as np
 import torch
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, Dataset
-
+import jax
+import functools
+from dm_hamiltonian_dynamics_suite import datasets
 from hgan.utils import trim_noise
 from hgan.configuration import config
 
@@ -104,7 +105,10 @@ class ToyPhysicsDataset(Dataset):
 
         vid = (
             np.asarray(
-                [resize(img, (config.todo.magic, config.todo.magic, nc)) for img in vid]
+                [
+                    resize(img, (config.arch.img_size, config.arch.img_size, nc))
+                    for img in vid
+                ]
             )
             if self.resize
             else vid
@@ -175,9 +179,12 @@ class ToyPhysicsDatasetNPZ(Dataset):
         end = start + self.num_frames
         vid = vid[start:end]
 
-        if img_size != config.todo.magic:
+        if img_size != config.arch.img_size:
             vid = np.asarray(
-                [resize(img, (config.todo.magic, config.todo.magic, nc)) for img in vid]
+                [
+                    resize(img, (config.arch.img_size, config.arch.img_size, nc))
+                    for img in vid
+                ]
             )
 
         # transpose each video to (nc, n_frames, img_size, img_size), and divide by 255
@@ -187,6 +194,96 @@ class ToyPhysicsDatasetNPZ(Dataset):
             vid = (vid - 0.5) / 0.5
 
         return vid.astype(np.float32)
+
+
+class RealtimeDataset(Dataset):
+
+    # Systems supported by dm_hamiltonian_dynamics_suite (11)
+    systems = (
+        "MASS_SPRING",
+        "MASS_SPRING_COLORS",
+        "MASS_SPRING_COLORS_FRICTION",
+        "PENDULUM",
+        "PENDULUM_COLORS",
+        "PENDULUM_COLORS_FRICTION",
+        "DOUBLE_PENDULUM",
+        "DOUBLE_PENDULUM_COLORS",
+        "DOUBLE_PENDULUM_COLORS_FRICTION",
+        "TWO_BODY",
+        "TWO_BODY_COLORS",
+    )
+
+    def __init__(self, dataset_name, num_frames=16, delta=1, train=True):
+        jax.config.update("jax_enable_x64", True)
+
+        self.dataset_name = dataset_name.upper()
+        self.num_frames = num_frames
+        self.delta = delta
+        self.train = train
+
+        self.video_lengths = [100] * 30
+
+        cls, config_ = getattr(datasets, self.dataset_name)
+        config_dict = config_()
+        # TODO: Is this okay to do for speedup? Will this modify the characteristics of the experiment drastically?
+        config_dict["image_resolution"] = config.arch.img_size
+        system = cls(**config_dict)
+
+        self.generate_fn = functools.partial(
+            datasets.generate_sample,
+            system=system,
+            dt=0.05,  # Blanchette 2021
+            num_steps=num_frames - 1,  # should be 512-1 to conform to Blanchette 2021
+            steps_per_dt=1,
+        )
+
+        self.features = self.generate_fn(0)[
+            "other"
+        ]  # Fixed features across all trajectories
+
+    def __len__(self):
+        return 50_000 if self.train else 10_000  # Blanchette 2021
+
+    def _label_vector_from_data(self, data):
+        labels = np.zeros((config.arch.dl,))
+        labels[self.systems.index(self.dataset_name)] = 1
+        # note: dicts are ordered in py >= 3.7 so we have a deterministic order
+        for i, (k, v) in enumerate(data["other"].items(), start=len(self.systems)):
+            value = np.asscalar(v)
+            labels[i] = value
+        return labels
+
+    def __getitem__(self, item):
+        data = self.generate_fn(item)  # num_steps + 1, L, L, num_channels
+        image = data["image"]
+        # assert isinstance(image, jax.numpy.ndarray)
+        # assert image.dtype == np.uint8
+
+        vid = np.array(image / 255)
+
+        vid = vid[:: self.delta]  # orig dt is 0.05
+        n_frames, img_size, _, nc = vid.shape
+
+        start = np.random.randint(0, n_frames - self.num_frames + 1)
+        end = start + self.num_frames
+        vid = vid[start:end]
+
+        if img_size != config.arch.img_size:
+            vid = np.asarray(
+                [
+                    resize(img, (config.arch.img_size, config.arch.img_size, nc))
+                    for img in vid
+                ]
+            )
+
+        # transpose each video to (nc, n_frames, img_size, img_size), and divide by 255
+        vid = vid.transpose(3, 0, 1, 2)
+
+        if config.video.normalize:
+            vid = (vid - 0.5) / 0.5
+
+        labels = self._label_vector_from_data(data)
+        return vid.astype(np.float32), labels
 
 
 def build_dataloader(args):
@@ -208,7 +305,12 @@ def get_dataset(args):
     Returns:
         Dataset
     """
-    return ToyPhysicsDatasetNPZ(args.datapath, num_frames=config.video.frames)
+    if config.experiment.hamiltonian_physics_rt:
+        return RealtimeDataset(
+            dataset_name=args.video_type[0], num_frames=config.video.frames
+        )
+    else:
+        return ToyPhysicsDatasetNPZ(args.datapath, num_frames=config.video.frames)
 
 
 def get_real_data(args, videos_dataloader):
@@ -223,7 +325,7 @@ def get_real_data(args, videos_dataloader):
         real_data (dict): (sample videos, sample images)
     """
 
-    real_videos = next(iter(videos_dataloader))
+    real_videos, real_labels = next(iter(videos_dataloader))
     real_videos = real_videos.to(args.device)
     real_videos = Variable(real_videos)
 
@@ -231,7 +333,7 @@ def get_real_data(args, videos_dataloader):
 
     real_img = real_videos[:, :, np.random.randint(0, real_videos_frames), :, :]
 
-    real_data = {"videos": real_videos, "img": real_img}
+    real_data = {"videos": real_videos, "img": real_img, "labels": real_labels}
 
     return real_data
 
@@ -257,7 +359,7 @@ def get_fake_data(args, video_lengths, rnn, gen_i, T=None):
     n_frames = video_lengths[idx]
 
     # Z.size() => (batch_size, n_frames, nz, 1, 1)
-    Z, dz = get_latent_sample(args, rnn, n_frames)
+    Z, dz, labels = get_latent_sample(args, rnn, n_frames)
     # trim => (batch_size, T, nz, 1, 1)
     Z = trim_noise(Z, T=T)
     Z_reshape = Z.contiguous().view(args.batch_size * T, args.nz, 1, 1)
@@ -265,7 +367,6 @@ def get_fake_data(args, video_lengths, rnn, gen_i, T=None):
     # generate videos
     fake_videos = gen_i(Z_reshape)
 
-    # import pdb; pdb.set_trace()
     fake_videos = fake_videos.view(
         args.batch_size, T, args.nc, args.img_size, args.img_size
     )
@@ -274,7 +375,13 @@ def get_fake_data(args, video_lengths, rnn, gen_i, T=None):
     # img sampling
     fake_img = fake_videos[:, :, np.random.randint(0, T), :, :]
 
-    fake_data = {"videos": fake_videos, "img": fake_img, "latent": Z, "dlatent": dz}
+    fake_data = {
+        "videos": fake_videos,
+        "img": fake_img,
+        "latent": Z,
+        "dlatent": dz,
+        "labels": labels,
+    }
 
     return fake_data
 
@@ -308,7 +415,7 @@ def compute_simple_motion_vector(args, n_frames, rnn):
 
 
 def compute_phase_space_motion_vector(args, n_frames, rnn):
-    eps = Variable(torch.randn(args.batch_size, args.d_E))
+    eps = Variable(torch.randn(args.batch_size, args.d_E + args.d_L))
     eps = eps.to(args.device)
 
     rnn.initHidden(args.batch_size)
@@ -316,7 +423,8 @@ def compute_phase_space_motion_vector(args, n_frames, rnn):
     z_M, dz_M = rnn(eps, n_frames)
     z_M = z_M.transpose(1, 0)
     dz_M = dz_M.transpose(1, 0)
-    return z_M, dz_M
+    labels = eps[:, -args.d_L :] if args.d_L > 0 else None
+    return z_M, dz_M, labels
 
 
 def compute_mass_motion_vector(args, n_frames, rnn):
@@ -354,7 +462,7 @@ def get_simple_sample(args, rnn, n_frames):
     z_M = compute_simple_motion_vector(args, n_frames, rnn)
     z = torch.cat((z_M, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
 
-    return z.view(args.batch_size, n_frames, args.nz, 1, 1), None
+    return z.view(args.batch_size, n_frames, args.nz, 1, 1), None, None
 
 
 def get_phase_space_sample(args, rnn, n_frames):
@@ -372,10 +480,10 @@ def get_phase_space_sample(args, rnn, n_frames):
     """
 
     z_C = get_random_content_vector(args, n_frames)
-    z_M, dz_M = compute_phase_space_motion_vector(args, n_frames, rnn)
+    z_M, dz_M, labels = compute_phase_space_motion_vector(args, n_frames, rnn)
     z = torch.cat((z_M, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
 
-    return z.view(args.batch_size, n_frames, args.nz, 1, 1), dz_M
+    return z.view(args.batch_size, n_frames, args.nz, 1, 1), dz_M, labels
 
 
 def get_mass_sample(args, rnn, n_frames):
@@ -396,4 +504,4 @@ def get_mass_sample(args, rnn, n_frames):
     z_M, z_mass = compute_mass_motion_vector(args, n_frames, rnn)
     # import pdb; pdb.set_trace()
     z = torch.cat((z_M, z_mass, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
-    return z.view(args.batch_size, n_frames, args.nz, 1, 1), None
+    return z.view(args.batch_size, n_frames, args.nz, 1, 1), None, None

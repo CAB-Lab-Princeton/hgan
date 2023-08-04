@@ -112,20 +112,22 @@ def add_dependent_args(args, video_type, rnn_type):
     args.label = torch.FloatTensor()
     args.label = args.label.to(args.device)
 
-    args.img_size = config.todo.magic
-    args.nc = 3
-    args.ndf = 32  # from dcgan
-    args.ngf = 32
+    args.img_size = config.arch.img_size
+    args.nc = config.arch.nc
+    args.ndf = config.arch.ndf
+    args.ngf = config.arch.ngf
 
-    args.hidden_size = 100  # guess
+    args.hidden_size = config.arch.hidden_size
 
-    # original hyperparameters
-    args.d_E = 20
-    args.d_C = 50
-    args.d_M = args.d_E
+    args.d_E = config.arch.de
+    args.d_C = config.arch.dc
+    args.d_M = (
+        args.d_E
+    )  # Dimension of motion vector (since (p, q) vectors are concatenated, same as d_E)
+    args.d_L = config.arch.dl
 
-    args.lr = 0.0002
-    args.betas = (0.5, 0.999)
+    args.lr = config.experiment.learning_rate
+    args.betas = tuple(float(b) for b in config.experiment.betas.split(","))
 
     # new hyperparameters
     args.q_size = int(args.d_M / 2)

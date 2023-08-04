@@ -242,7 +242,9 @@ class GRU(nn.Module):
         """
         outputs = []
         for i in range(n_frames):
-            self.hidden = self.gru(inputs, self.hidden)  # TODO: This looks iffy!
+            self.hidden = self.gru(
+                inputs, self.hidden
+            )  # TODO: This looks iffy - why modify self.hidden for next batch?
             inputs = self.linear(self.hidden)
             outputs.append(inputs)
         outputs = [self.bn(elm) for elm in outputs]
@@ -303,7 +305,7 @@ class HNNSimple(nn.Module):
 
         return outputs
 
-    def leap_frog_step(self, x):
+    def leap_frog_step(self, x, labels=None):
         """
         one step of leap frog integration
 
@@ -311,19 +313,25 @@ class HNNSimple(nn.Module):
         q, p = torch.chunk(x, 2, dim=1)
         q.requires_grad_()
         p.requires_grad_()
+        if labels is None:
+            labels = torch.Tensor().to(
+                p.device
+            )  # Empty Tensor so we can concatenate etc without issues
+        labels.requires_grad_()
 
         x = torch.cat((q, p), dim=1)
-        energy = self.hnn(x)
+        hnn_input = torch.cat((x, labels), dim=1)
+        energy = self.hnn(hnn_input)
         dpdt = -grad(energy.sum(), q, create_graph=True)[0]
         p_half = p + dpdt * (self.dt / 2)
 
-        x_half = torch.cat((q, p_half), dim=1)
+        x_half = torch.cat((q, p_half, labels), dim=1)
         energy = self.hnn(x_half)
         dqdt = grad(energy.sum(), p, create_graph=True)[0]
 
         q_next = q + dqdt * self.dt
 
-        x_next = torch.cat((q_next, p_half), dim=1)
+        x_next = torch.cat((q_next, p_half, labels), dim=1)
         energy = self.hnn(x_next)
         dpdt = -grad(energy.sum(), q_next, create_graph=True)[0]
 
@@ -370,17 +378,17 @@ class HNNPhaseSpace(HNNSimple):
 
     def forward(self, TM_noise, n_frames):
         x = self.phase_space_map(TM_noise)
+        labels = TM_noise[:, -config.arch.dl :] if config.arch.dl > 0 else None
         outputs = [x]
         doutputs = []
         for i in range(n_frames - 1):
-            x_next, dx_next = self.leap_frog_step(x)
+            x_next, dx_next = self.leap_frog_step(x, labels)
             outputs.append(x_next)
             doutputs.append(dx_next)
             x = outputs[-1]
 
         outputs = torch.stack(outputs)
         doutputs = torch.stack(doutputs)
-        # import pdb; pdb.set_trace()
 
         return outputs, doutputs
 
@@ -490,7 +498,9 @@ def build_models(args):
     gen_i = Generator_I(args.nc, args.ngf, args.nz, ngpu=args.ngpu).to(args.device)
 
     if args.rnn_type in ("hnn_phase_space", "hnn_mass"):
-        rnn = args.rnn(args, args.d_E, args.hidden_size, args.d_E).to(args.device)
+        rnn = args.rnn(args, args.d_E + args.d_L, args.hidden_size, args.d_E).to(
+            args.device
+        )
     else:
         rnn = args.rnn(args, args.d_E, args.hidden_size).to(args.device)
 
