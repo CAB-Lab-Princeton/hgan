@@ -8,7 +8,7 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader, Dataset
 import jax
 import functools
-from dm_hamiltonian_dynamics_suite import datasets
+from hgan.dm_hamiltonian_dynamics_suite import datasets
 from hgan.utils import trim_noise
 from hgan.configuration import config
 

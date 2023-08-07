@@ -8,20 +8,25 @@ repos:
     rev: v3.2.0
     hooks:
     -   id: trailing-whitespace
+        exclude: src/hgan/dm_hamiltonian_dynamics_suite
     -   id: end-of-file-fixer
+        exclude: src/hgan/dm_hamiltonian_dynamics_suite
 
 -   repo: https://github.com/pycqa/flake8
     rev: '4.0.1'
     hooks:
     -   id: flake8
+        exclude: src/hgan/dm_hamiltonian_dynamics_suite
 
 -   repo: https://github.com/psf/black
     rev: 22.10.0
     hooks:
       - id: black
         language_version: python3
+        exclude: src/hgan/dm_hamiltonian_dynamics_suite
 
 -   repo: https://github.com/MarcoGorelli/absolufy-imports
     rev: v0.3.1
     hooks:
     -   id: absolufy-imports
+        exclude: src/hgan/dm_hamiltonian_dynamics_suite
