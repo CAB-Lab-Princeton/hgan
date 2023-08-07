@@ -18,16 +18,15 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
 ]
 
-# Note: pytorch/tensorflow/numpy are not listed here!
-# Till a stable configuration of these is determined, these deps are assumed to be provided by the environment.
-# Known to work locally:
-#   mamba install pytorch torchvision torchaudio tensorflow-gpu pytorch-cuda=11.7 numpy=1.21 -c pytorch -c nvidia
 dependencies = [
     "scikit-image",
     "scikit-video",
+    "numpy",
     "opencv-python",
     "jax",
     "jaxlib",
+    "tensorflow",
+    "torch",
     "tqdm",
     "wandb"
 ]

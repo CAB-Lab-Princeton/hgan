@@ -1,3 +1,8 @@
+# Having both tensorflow/torch in requirements has been known to cause import issues
+# with cudnn shared libraries etc., unless we first import them in this order:
+import torch  # noqa: F401
+import tensorflow  # noqa: F401
+
 # The _version.py file is managed by setuptools-scm
 #   and is not in version control.
 try:

@@ -247,10 +247,22 @@ class RealtimeDataset(Dataset):
     def _label_vector_from_data(self, data):
         labels = np.zeros((config.arch.dl,))
         labels[self.systems.index(self.dataset_name)] = 1
+
+        i = len(self.systems)
         # note: dicts are ordered in py >= 3.7 so we have a deterministic order
-        for i, (k, v) in enumerate(data["other"].items(), start=len(self.systems)):
-            value = np.asscalar(v)
-            labels[i] = value
+        for k, v in data["other"].items():
+            if v.size == 1:
+                labels[i] = v.item()
+                i += 1
+                if i >= len(labels):
+                    return labels
+            else:
+                for _v in v:
+                    labels[i] = _v
+                    i += 1
+                    if i >= len(labels):
+                        return labels
+
         return labels
 
     def __getitem__(self, item):
