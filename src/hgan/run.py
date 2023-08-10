@@ -25,8 +25,7 @@ def get_parser(parser):
     parser.add_argument(
         "--video_type",
         type=str,
-        nargs="+",
-        default=config.experiment.dataset,
+        default=config.experiment.system_name,
         help="dataset choices",
     )
     parser.add_argument(
@@ -96,7 +95,8 @@ def get_parser(parser):
 
 def add_dependent_args(args, video_type, rnn_type):
     # Add arguments not specified on the command line, but derived from existing arguments
-    args.datapath = os.path.join(args.data_dir, video_type)
+    if video_type is not None:
+        args.datapath = os.path.join(args.data_dir, video_type)
 
     # set rnn module {gru, hnn_simple}
     args.rnn = RNN_TYPE[rnn_type]
@@ -125,6 +125,7 @@ def add_dependent_args(args, video_type, rnn_type):
         args.d_E
     )  # Dimension of motion vector (since (p, q) vectors are concatenated, same as d_E)
     args.d_L = config.arch.dl
+    args.d_P = config.arch.dp
 
     args.lr = config.experiment.learning_rate
     args.betas = tuple(float(b) for b in config.experiment.betas.split(","))
@@ -144,15 +145,12 @@ def main(*args):
     parser = argparse.ArgumentParser(description=__doc__)
     args = get_parser(parser).parse_args(args)
 
-    video_types = args.video_type
-    if isinstance(video_types, str):
-        video_types = [video_types]
+    video_type = args.video_type
 
     rnn_types = args.rnn_type
     if isinstance(rnn_types, str):
         rnn_types = [rnn_types]
 
-    for video_type in video_types:
-        for rnn_type in rnn_types:
-            add_dependent_args(args, video_type, rnn_type)
-            run_experiment(args)
+    for rnn_type in rnn_types:
+        add_dependent_args(args, video_type, rnn_type)
+        run_experiment(args)

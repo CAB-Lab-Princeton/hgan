@@ -316,7 +316,7 @@ class HNNSimple(nn.Module):
         if labels is None:
             labels = torch.Tensor().to(
                 p.device
-            )  # Empty Tensor so we can concatenate etc without issues
+            )  # Empty Tensor so we can concatenate without issues
         labels.requires_grad_()
 
         x = torch.cat((q, p), dim=1)
@@ -378,7 +378,11 @@ class HNNPhaseSpace(HNNSimple):
 
     def forward(self, TM_noise, n_frames):
         x = self.phase_space_map(TM_noise)
-        labels = TM_noise[:, -config.arch.dl :] if config.arch.dl > 0 else None
+        labels = (
+            TM_noise[:, -(config.arch.dl + config.arch.dp) :]
+            if (config.arch.dl + config.arch.dp) > 0
+            else None
+        )
         outputs = [x]
         doutputs = []
         for i in range(n_frames - 1):
@@ -498,9 +502,9 @@ def build_models(args):
     gen_i = Generator_I(args.nc, args.ngf, args.nz, ngpu=args.ngpu).to(args.device)
 
     if args.rnn_type in ("hnn_phase_space", "hnn_mass"):
-        rnn = args.rnn(args, args.d_E + args.d_L, args.hidden_size, args.d_E).to(
-            args.device
-        )
+        rnn = args.rnn(
+            args, args.d_E + args.d_L + args.d_P, args.hidden_size, args.d_E
+        ).to(args.device)
     else:
         rnn = args.rnn(args, args.d_E, args.hidden_size).to(args.device)
 

@@ -36,7 +36,11 @@ def r1_loss(real_out, real_input):
     return grad_penalty
 
 
-def update_Dv(args, dis_v, real_videos, fake_videos, optim_Dv):
+def update_Dv(args, dis_v, real_data, fake_data, optim_Dv):
+
+    real_videos = real_data["videos"]
+    fake_videos = fake_data["videos"]
+
     dis_v.zero_grad()
 
     # needed for r1 loss
@@ -61,13 +65,19 @@ def update_Dv(args, dis_v, real_videos, fake_videos, optim_Dv):
     return err_Dv, mean_Dv
 
 
-def update_Di(args, dis_i, real_img, fake_img, optim_Di):
+def update_Di(args, dis_i, real_data, fake_data, optim_Di):
+
+    real_img = real_data["img"]
+    fake_img = fake_data["img"]
+
     dis_i.zero_grad()
 
     # needed for r1 loss
     real_img.requires_grad = True
 
-    err_Di_real, real_out = bp_i(args, dis_i, real_img, 0.9, retain=True)
+    err_Di_real, real_out = bp_i(
+        args, dis_i, real_img, 0.9, retain=True
+    )  # TODO: Why 0.9 and not 1.0?
     Di_real_mean = real_out.data.mean()
 
     # https://github.com/rosinality/style-based-gan-pytorch/blob/a3d000e707b70d1a5fc277912dc9d7432d6e6069/train.py
@@ -145,12 +155,8 @@ def update_models(args, models, optims, real_data, fake_data):
         optims["RNN"],
     )
 
-    err_Dv, mean_Dv = update_Dv(
-        args, dis_v, real_data["videos"], fake_data["videos"], optim_Dv
-    )
-    err_Di, mean_Di = update_Di(
-        args, dis_i, real_data["img"], fake_data["img"], optim_Di
-    )
+    err_Dv, mean_Dv = update_Dv(args, dis_v, real_data, fake_data, optim_Dv)
+    err_Di, mean_Di = update_Di(args, dis_i, real_data, fake_data, optim_Di)
     err_G = update_G(args, models, fake_data, optim_Gi, optim_RNN)
 
     err = {**err_Dv, **err_Di, **err_G}

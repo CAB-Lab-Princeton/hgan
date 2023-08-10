@@ -11,6 +11,7 @@ import functools
 from hgan.dm_hamiltonian_dynamics_suite import datasets
 from hgan.utils import trim_noise
 from hgan.configuration import config
+from hgan.dm_datasets import all_systems, constant_physics, variable_physics
 
 
 class AviDataset(Dataset):
@@ -197,76 +198,95 @@ class ToyPhysicsDatasetNPZ(Dataset):
 
 
 class RealtimeDataset(Dataset):
-
-    # Systems supported by dm_hamiltonian_dynamics_suite (11)
-    systems = (
-        "MASS_SPRING",
-        "MASS_SPRING_COLORS",
-        "MASS_SPRING_COLORS_FRICTION",
-        "PENDULUM",
-        "PENDULUM_COLORS",
-        "PENDULUM_COLORS_FRICTION",
-        "DOUBLE_PENDULUM",
-        "DOUBLE_PENDULUM_COLORS",
-        "DOUBLE_PENDULUM_COLORS_FRICTION",
-        "TWO_BODY",
-        "TWO_BODY_COLORS",
-    )
-
-    def __init__(self, dataset_name, num_frames=16, delta=1, train=True):
+    def __init__(self, system_name=None, num_frames=16, delta=1, train=True):
         jax.config.update("jax_enable_x64", True)
 
-        self.dataset_name = dataset_name.upper()
+        if system_name is None:
+            system_names = all_systems
+            if config.experiment.system_color_constant:
+                system_names = [x for x in system_names if "_COLORS" not in x]
+            if config.experiment.system_friction:
+                system_names = [x for x in system_names if "_FRICTION" in x]
+        else:
+            system_name = system_name.upper()
+            if not config.experiment.system_color_constant:
+                system_name += "_COLORS"
+            if config.experiment.system_friction:
+                system_name += "_FRICTION"
+
+            assert system_name in all_systems, f"Unknown system {system_name}"
+            system_names = [system_name]
+
+        assert system_names, "No system selected"
+        self.system_names = system_names
+
         self.num_frames = num_frames
         self.delta = delta
         self.train = train
 
-        self.video_lengths = [100] * 30
+        self.video_lengths = [100] * 30  # TODO: ???
 
-        cls, config_ = getattr(datasets, self.dataset_name)
-        config_dict = config_()
-        # TODO: Is this okay to do for speedup? Will this modify the characteristics of the experiment drastically?
-        config_dict["image_resolution"] = config.arch.img_size
-        system = cls(**config_dict)
+        self.generate_fn = {}  # Generate functions, keyed by system
+        self.features = {}  # Fixed features across all trajectories, keyed by system
 
-        self.generate_fn = functools.partial(
-            datasets.generate_sample,
-            system=system,
-            dt=0.05,  # Blanchette 2021
-            num_steps=num_frames - 1,  # should be 512-1 to conform to Blanchette 2021
-            steps_per_dt=1,
-        )
+        for system_name in self.system_names:
+            cls, config_ = getattr(datasets, system_name)
+            config_dict = config_()
 
-        self.features = self.generate_fn(0)[
-            "other"
-        ]  # Fixed features across all trajectories
+            # Tweak the physics parameters to our liking
+            # TODO: Is this okay to do for speedup? Will this modify the characteristics of the experiment drastically?
+            config_dict["image_resolution"] = config.arch.img_size
+            _physics_key = (
+                system_name.replace("COLORS", "").replace("FRICTION", "").rstrip("_")
+            )
+            if config.experiment.system_physics_constant:
+                config_dict |= constant_physics[_physics_key]
+            else:
+                config_dict |= variable_physics[_physics_key]
+
+            obj = cls(**config_dict)
+
+            f = functools.partial(
+                datasets.generate_sample,
+                system=obj,
+                dt=0.05,  # Blanchette 2021
+                num_steps=num_frames
+                - 1,  # should be 512-1 to conform to Blanchette 2021
+                steps_per_dt=1,
+            )
+
+            self.generate_fn[system_name] = f
+            self.features[system_name] = f(0)["other"]
 
     def __len__(self):
         return 50_000 if self.train else 10_000  # Blanchette 2021
 
-    def _label_vector_from_data(self, data):
-        labels = np.zeros((config.arch.dl,))
-        labels[self.systems.index(self.dataset_name)] = 1
+    def _physics_vector_from_data(self, data):
+        props = np.zeros((config.arch.dp,))
 
-        i = len(self.systems)
+        i = 0
         # note: dicts are ordered in py >= 3.7 so we have a deterministic order
         for k, v in data["other"].items():
+            v = v.squeeze()
             if v.size == 1:
-                labels[i] = v.item()
+                props[i] = v.item()
                 i += 1
-                if i >= len(labels):
-                    return labels
+                if i >= len(props):
+                    return props
             else:
                 for _v in v:
-                    labels[i] = _v
+                    props[i] = _v
                     i += 1
-                    if i >= len(labels):
-                        return labels
+                    if i >= len(props):
+                        return props
 
-        return labels
+        return props
 
     def __getitem__(self, item):
-        data = self.generate_fn(item)  # num_steps + 1, L, L, num_channels
+        system_name_index = np.random.choice(len(self.system_names))
+        system_name = self.system_names[system_name_index]
+
+        data = self.generate_fn[system_name](item)  # num_steps + 1, L, L, num_channels
         image = data["image"]
         # assert isinstance(image, jax.numpy.ndarray)
         # assert image.dtype == np.uint8
@@ -294,8 +314,14 @@ class RealtimeDataset(Dataset):
         if config.video.normalize:
             vid = (vid - 0.5) / 0.5
 
-        labels = self._label_vector_from_data(data)
-        return vid.astype(np.float32), labels
+        props = self._physics_vector_from_data(data)
+        return vid.astype(np.float32), system_name_index, props
+
+    def get_fake_labels(self, batch_size):
+        fake_labels = Variable(
+            torch.LongTensor(np.random.randint(0, len(self.system_names), batch_size))
+        )
+        return fake_labels
 
 
 def build_dataloader(args):
@@ -319,7 +345,7 @@ def get_dataset(args):
     """
     if config.experiment.hamiltonian_physics_rt:
         return RealtimeDataset(
-            dataset_name=args.video_type[0], num_frames=config.video.frames
+            system_name=args.video_type, num_frames=config.video.frames
         )
     else:
         return ToyPhysicsDatasetNPZ(args.datapath, num_frames=config.video.frames)
@@ -337,7 +363,7 @@ def get_real_data(args, videos_dataloader):
         real_data (dict): (sample videos, sample images)
     """
 
-    real_videos, real_labels = next(iter(videos_dataloader))
+    real_videos, real_system, real_props = next(iter(videos_dataloader))
     real_videos = real_videos.to(args.device)
     real_videos = Variable(real_videos)
 
@@ -345,12 +371,17 @@ def get_real_data(args, videos_dataloader):
 
     real_img = real_videos[:, :, np.random.randint(0, real_videos_frames), :, :]
 
-    real_data = {"videos": real_videos, "img": real_img, "labels": real_labels}
+    real_data = {
+        "videos": real_videos,
+        "img": real_img,
+        "system": real_system,
+        "props": real_props,
+    }
 
     return real_data
 
 
-def get_fake_data(args, video_lengths, rnn, gen_i, T=None):
+def get_fake_data(args, dataset, video_lengths, rnn, gen_i, T=None):
     """
     gets a random sample from the generator
 
@@ -371,7 +402,7 @@ def get_fake_data(args, video_lengths, rnn, gen_i, T=None):
     n_frames = video_lengths[idx]
 
     # Z.size() => (batch_size, n_frames, nz, 1, 1)
-    Z, dz, labels = get_latent_sample(args, rnn, n_frames)
+    Z, dz, labels, props = get_latent_sample(args, dataset, rnn, n_frames)
     # trim => (batch_size, T, nz, 1, 1)
     Z = trim_noise(Z, T=T)
     Z_reshape = Z.contiguous().view(args.batch_size * T, args.nz, 1, 1)
@@ -392,17 +423,18 @@ def get_fake_data(args, video_lengths, rnn, gen_i, T=None):
         "img": fake_img,
         "latent": Z,
         "dlatent": dz,
-        "labels": labels,
+        "system": labels,
+        "props": props,
     }
 
     return fake_data
 
 
-def get_latent_sample(args, rnn, n_frames):
+def get_latent_sample(args, dataset, rnn, n_frames):
     if args.rnn_type in ["gru", "hnn_simple"]:
         return get_simple_sample(args, rnn, n_frames)
     elif args.rnn_type in ["hnn_phase_space"]:
-        return get_phase_space_sample(args, rnn, n_frames)
+        return get_phase_space_sample(args, dataset, rnn, n_frames)
     else:
         return get_mass_sample(args, rnn, n_frames)
 
@@ -426,8 +458,8 @@ def compute_simple_motion_vector(args, n_frames, rnn):
     return z_M
 
 
-def compute_phase_space_motion_vector(args, n_frames, rnn):
-    eps = Variable(torch.randn(args.batch_size, args.d_E + args.d_L))
+def compute_phase_space_motion_vector(args, dataset, n_frames, rnn):
+    eps = Variable(torch.randn(args.batch_size, args.d_E + args.d_L + args.d_P))
     eps = eps.to(args.device)
 
     rnn.initHidden(args.batch_size)
@@ -435,8 +467,12 @@ def compute_phase_space_motion_vector(args, n_frames, rnn):
     z_M, dz_M = rnn(eps, n_frames)
     z_M = z_M.transpose(1, 0)
     dz_M = dz_M.transpose(1, 0)
-    labels = eps[:, -args.d_L :] if args.d_L > 0 else None
-    return z_M, dz_M, labels
+    if config.experiment.hamiltonian_physics_rt:
+        fake_labels = dataset.get_fake_labels(args.batch_size)
+    else:
+        fake_labels = Variable(torch.LongTensor(np.zeros((args.batch_size,))))
+    fake_props = eps[:, -(args.d_L + args.d_P) :] if (args.d_L + args.d_P) > 0 else None
+    return z_M, dz_M, fake_labels, fake_props
 
 
 def compute_mass_motion_vector(args, n_frames, rnn):
@@ -474,10 +510,10 @@ def get_simple_sample(args, rnn, n_frames):
     z_M = compute_simple_motion_vector(args, n_frames, rnn)
     z = torch.cat((z_M, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
 
-    return z.view(args.batch_size, n_frames, args.nz, 1, 1), None, None
+    return z.view(args.batch_size, n_frames, args.nz, 1, 1), None, None, None
 
 
-def get_phase_space_sample(args, rnn, n_frames):
+def get_phase_space_sample(args, dataset, rnn, n_frames):
     """
     generates latent sample that serves as an input to the generator
     the motion sample is generated with rnn
@@ -492,10 +528,12 @@ def get_phase_space_sample(args, rnn, n_frames):
     """
 
     z_C = get_random_content_vector(args, n_frames)
-    z_M, dz_M, labels = compute_phase_space_motion_vector(args, n_frames, rnn)
+    z_M, dz_M, labels, props = compute_phase_space_motion_vector(
+        args, dataset, n_frames, rnn
+    )
     z = torch.cat((z_M, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
 
-    return z.view(args.batch_size, n_frames, args.nz, 1, 1), dz_M, labels
+    return z.view(args.batch_size, n_frames, args.nz, 1, 1), dz_M, labels, props
 
 
 def get_mass_sample(args, rnn, n_frames):
@@ -516,4 +554,4 @@ def get_mass_sample(args, rnn, n_frames):
     z_M, z_mass = compute_mass_motion_vector(args, n_frames, rnn)
     # import pdb; pdb.set_trace()
     z = torch.cat((z_M, z_mass, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
-    return z.view(args.batch_size, n_frames, args.nz, 1, 1), None, None
+    return z.view(args.batch_size, n_frames, args.nz, 1, 1), None, None, None

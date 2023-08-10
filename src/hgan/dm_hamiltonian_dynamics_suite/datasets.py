@@ -36,7 +36,7 @@ PipelineOutput = Optional[Tuple[
 ]]
 
 try:
-  from dm_hamiltonian_dynamics_suite.multiagent_dynamics import game_dynamics  # pylint: disable=g-import-not-at-top
+  from hgan.dm_hamiltonian_dynamics_suite.multiagent_dynamics import game_dynamics  # pylint: disable=g-import-not-at-top
   _OPEN_SPIEL_INSTALLED = True
 except ModuleNotFoundError:
   _OPEN_SPIEL_INSTALLED = False

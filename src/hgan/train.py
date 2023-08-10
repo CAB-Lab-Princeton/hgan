@@ -38,7 +38,9 @@ def train_step(args, videos_dataloader, models, optims):
     video_lengths = videos_dataloader.dataset.video_lengths
 
     real_data = get_real_data(args, videos_dataloader)
-    fake_data = get_fake_data(args, video_lengths, models["RNN"], models["Gi"])
+    fake_data = get_fake_data(
+        args, videos_dataloader.dataset, video_lengths, models["RNN"], models["Gi"]
+    )
 
     err, mean = update_models(args, models, optims, real_data, fake_data)
 

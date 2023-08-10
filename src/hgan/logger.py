@@ -1,10 +1,10 @@
 import os
 import glob
 import re
-
 import torch
 import numpy as np
 import skvideo.io
+from hgan.configuration import config
 
 
 def save_video(folder, fake_video, epoch):
@@ -80,7 +80,7 @@ def load(models, optim, trained_models_dir, retrain=False, device="cpu"):
     model_dir = trained_models_dir + "/models"
     models_saved = os.path.exists(model_dir)
 
-    if models_saved:
+    if models_saved and config.experiment.load_saved_models:
         models = {
             "Di": torch.load(f"{model_dir}/model-Di.pth"),
             "Dv": torch.load(f"{model_dir}/model-Dv.pth"),
@@ -94,7 +94,7 @@ def load(models, optim, trained_models_dir, retrain=False, device="cpu"):
             "RNN": torch.load(f"{model_dir}/optim-RNN.pth"),
         }
     else:
-        os.makedirs(model_dir)
+        os.makedirs(model_dir, exist_ok=True)
 
         torch.save(models["Di"], f"{model_dir}/model-Di.pth")
         torch.save(models["Dv"], f"{model_dir}/model-Dv.pth")
