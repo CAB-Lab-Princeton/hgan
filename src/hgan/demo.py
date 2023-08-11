@@ -15,7 +15,7 @@ def main():
             "--trained_models_dir",
             output_dir,
             "--video_type",
-            "pendulum_colors",
+            "pendulum",
             "--niter",
             "5",
         ]
