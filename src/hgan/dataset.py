@@ -224,7 +224,10 @@ class RealtimeDataset(Dataset):
         self.delta = delta
         self.train = train
 
-        self.video_lengths = [100] * 30  # TODO: ???
+        # Calling code in `get_fake_data` decides to randomly sample these `video_lengths`
+        # to decide on the length of a fake video sample, so it is okay to initialize `video_lengths`
+        # with a single value.
+        self.video_lengths = [config.video.total_frames]
 
         self.generate_fn = {}  # Generate functions, keyed by system
         self.features = {}  # Fixed features across all trajectories, keyed by system
@@ -250,8 +253,8 @@ class RealtimeDataset(Dataset):
                 datasets.generate_sample,
                 system=obj,
                 dt=0.05,  # Blanchette 2021
-                num_steps=num_frames
-                - 1,  # should be 512-1 to conform to Blanchette 2021
+                # num_steps is always 1 less than the no. of samples we wish to generate
+                num_steps=config.video.total_frames - 1,
                 steps_per_dt=1,
             )
 
@@ -326,6 +329,8 @@ class RealtimeDataset(Dataset):
 
 def build_dataloader(args):
     videos_dataset = get_dataset(args)
+    if len(videos_dataset) == 0:
+        raise RuntimeError("No videos found!")
     videos_dataloader = DataLoader(
         videos_dataset, batch_size=args.batch_size, shuffle=True, pin_memory=True
     )
@@ -362,8 +367,17 @@ def get_real_data(args, videos_dataloader):
     Returns:
         real_data (dict): (sample videos, sample images)
     """
+    real_videos = real_system = real_props = None
+    next_item = next(iter(videos_dataloader))
+    if isinstance(next_item, (tuple, list)):
+        real_videos = next_item[0]
+        if len(next_item) > 1:
+            real_system = next_item[1]
+        if len(next_item) > 2:
+            real_props = next_item[2]
+    else:
+        real_videos = next_item
 
-    real_videos, real_system, real_props = next(iter(videos_dataloader))
     real_videos = real_videos.to(args.device)
     real_videos = Variable(real_videos)
 

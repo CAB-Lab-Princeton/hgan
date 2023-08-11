@@ -45,12 +45,14 @@ class ConfigSection(object):
 
     def __getattr__(self, item):
         if item not in ("config", "name", "d"):
+            config_value = self.d[item]
             # If an environment variable exists with name <CONFIG_NAME>_<SECTION>_<ITEM>, use it
             env_varname = "_".join(
                 [str(x).upper() for x in [self.config.name, self.name, item]]
             )
-            env_var = os.getenv(env_varname)
-            return env_var or self.d[item]
+            if env_var := os.getenv(env_varname):
+                return type(config_value)(env_var)
+            return config_value
 
     def items(self):
         return self.d.items()
