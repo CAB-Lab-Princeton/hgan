@@ -1,6 +1,6 @@
 import os
 import tempfile
-from hgan.configuration import config, show_config
+from hgan.configuration import config, save_config
 
 
 def test_str():
@@ -31,5 +31,5 @@ def test_override():
 
 
 def test_save():
-    with tempfile.NamedTemporaryFile(mode="w") as f:
-        show_config(f.name)
+    with tempfile.TemporaryDirectory() as tempdir:
+        save_config(tempdir)
