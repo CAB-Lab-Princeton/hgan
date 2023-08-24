@@ -80,11 +80,23 @@ class Config(object):
         return self.config.sections()
 
 
-def show_config():
+def save_config(folder):
     global config
-    print("hgan configuration\n------------------")
+
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "configuration.ini"), mode="w") as f:
+        config.config.write(f)
+
+
+def load_config(folder):
+    global config
+    config_file = os.path.join(folder, "configuration.ini")
+    config = Config("hgan", config_file)
+    return config
+
+
+def show_config():
     config.config.write(sys.stdout)
 
 
-config_file = os.path.join(os.path.dirname(__file__), "configuration.ini")
-config = Config("hgan", config_file)
+config = load_config(os.path.dirname(__file__))

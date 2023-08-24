@@ -26,6 +26,7 @@ dependencies = [
     "jax",
     "jaxlib",
     "matplotlib",
+    "pacmap",
     "pandas",
     "tensorflow",
     "torch",

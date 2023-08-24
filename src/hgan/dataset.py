@@ -327,18 +327,18 @@ class RealtimeDataset(Dataset):
         return fake_labels
 
 
-def build_dataloader(args):
-    videos_dataset = get_dataset(args)
+def build_dataloader(*, video_type, datapath, batch_size):
+    videos_dataset = get_dataset(video_type=video_type, datapath=datapath)
     if len(videos_dataset) == 0:
         raise RuntimeError("No videos found!")
     videos_dataloader = DataLoader(
-        videos_dataset, batch_size=args.batch_size, shuffle=True, pin_memory=True
+        videos_dataset, batch_size=batch_size, shuffle=True, pin_memory=True
     )
 
     return videos_dataloader
 
 
-def get_dataset(args):
+def get_dataset(*, video_type, datapath):
     """
     builds a dataloader
 
@@ -349,14 +349,12 @@ def get_dataset(args):
         Dataset
     """
     if config.experiment.hamiltonian_physics_rt:
-        return RealtimeDataset(
-            system_name=args.video_type, num_frames=config.video.frames
-        )
+        return RealtimeDataset(system_name=video_type, num_frames=config.video.frames)
     else:
-        return ToyPhysicsDatasetNPZ(args.datapath, num_frames=config.video.frames)
+        return ToyPhysicsDatasetNPZ(datapath, num_frames=config.video.frames)
 
 
-def get_real_data(args, videos_dataloader):
+def get_real_data(*, device, videos_dataloader):
     """
     gets a random sample from the dataset
 
@@ -378,7 +376,7 @@ def get_real_data(args, videos_dataloader):
     else:
         real_videos = next_item
 
-    real_videos = real_videos.to(args.device)
+    real_videos = real_videos.to(device)
     real_videos = Variable(real_videos)
 
     real_videos_frames = real_videos.shape[2]
@@ -395,12 +393,29 @@ def get_real_data(args, videos_dataloader):
     return real_data
 
 
-def get_fake_data(args, dataset, video_lengths, rnn, gen_i, T=None):
+def get_fake_data(
+    *,
+    rnn_type,
+    batch_size,
+    d_C,
+    d_E,
+    d_L,
+    d_P,
+    d_N,
+    device,
+    nz,
+    nc,
+    img_size,
+    dataset,
+    video_lengths,
+    rnn,
+    gen_i,
+    T=None,
+):
     """
     gets a random sample from the generator
 
     Args:
-        args (ArgumentParser): experiment parameters
         video_lengths (list): video lenght distribution for avi dataset
         rnn: motion model
         gen_i: image generator
@@ -416,17 +431,28 @@ def get_fake_data(args, dataset, video_lengths, rnn, gen_i, T=None):
     n_frames = video_lengths[idx]
 
     # Z.size() => (batch_size, n_frames, nz, 1, 1)
-    Z, dz, labels, props = get_latent_sample(args, dataset, rnn, n_frames)
+    Z, dz, labels, props = get_latent_sample(
+        rnn_type=rnn_type,
+        batch_size=batch_size,
+        d_C=d_C,
+        d_E=d_E,
+        d_L=d_L,
+        d_P=d_P,
+        d_N=d_N,
+        device=device,
+        nz=nz,
+        dataset=dataset,
+        rnn=rnn,
+        n_frames=n_frames,
+    )
     # trim => (batch_size, T, nz, 1, 1)
     Z = trim_noise(Z, T=T)
-    Z_reshape = Z.contiguous().view(args.batch_size * T, args.nz, 1, 1)
+    Z_reshape = Z.contiguous().view(batch_size * T, nz, 1, 1)
 
     # generate videos
     fake_videos = gen_i(Z_reshape)
 
-    fake_videos = fake_videos.view(
-        args.batch_size, T, args.nc, args.img_size, args.img_size
-    )
+    fake_videos = fake_videos.view(batch_size, T, nc, img_size, img_size)
     # transpose => (batch_size, nc, T, img_size, img_size)
     fake_videos = fake_videos.transpose(2, 1)
     # img sampling
@@ -444,59 +470,83 @@ def get_fake_data(args, dataset, video_lengths, rnn, gen_i, T=None):
     return fake_data
 
 
-def get_latent_sample(args, dataset, rnn, n_frames):
-    if args.rnn_type in ["gru", "hnn_simple"]:
-        return get_simple_sample(args, rnn, n_frames)
-    elif args.rnn_type in ["hnn_phase_space"]:
-        return get_phase_space_sample(args, dataset, rnn, n_frames)
+def get_latent_sample(
+    *, rnn_type, batch_size, d_C, d_E, d_L, d_P, d_N, device, nz, dataset, rnn, n_frames
+):
+    if rnn_type in ["gru", "hnn_simple"]:
+        return get_simple_sample(rnn, n_frames)
+    elif rnn_type in ["hnn_phase_space"]:
+        return get_phase_space_sample(
+            batch_size=batch_size,
+            d_C=d_C,
+            d_E=d_E,
+            d_L=d_L,
+            d_P=d_P,
+            device=device,
+            nz=nz,
+            dataset=dataset,
+            rnn=rnn,
+            n_frames=n_frames,
+        )
     else:
-        return get_mass_sample(args, rnn, n_frames)
+        return get_mass_sample(
+            batch_size=batch_size,
+            d_C=d_C,
+            d_E=d_E,
+            d_N=d_N,
+            device=device,
+            nz=nz,
+            rnn=rnn,
+            n_frames=n_frames,
+        )
 
 
-def get_random_content_vector(args, n_frames):
-    z_C = Variable(torch.randn(args.batch_size, args.d_C))
+def get_random_content_vector(batch_size, d_C, device, n_frames):
+    z_C = Variable(torch.randn(batch_size, d_C))
     #  repeat z_C to (batch_size, n_frames, d_C)
     z_C = z_C.unsqueeze(1).repeat(1, n_frames, 1)
-    z_C = z_C.to(args.device)
+    z_C = z_C.to(device)
 
     return z_C
 
 
-def compute_simple_motion_vector(args, n_frames, rnn):
-    eps = Variable(torch.randn(args.batch_size, args.d_E))
-    eps = eps.to(args.device)
+def compute_simple_motion_vector(batch_size, d_E, device, n_frames, rnn):
+    eps = Variable(torch.randn(batch_size, d_E))
+    eps = eps.to(device)
 
-    rnn.initHidden(args.batch_size)
+    rnn.initHidden(batch_size)
     # notice that 1st dim of gru outputs is seq_len, 2nd is batch_size
     z_M = rnn(eps, n_frames).transpose(1, 0)
     return z_M
 
 
-def compute_phase_space_motion_vector(args, dataset, n_frames, rnn):
-    eps = Variable(torch.randn(args.batch_size, args.d_E + args.d_L + args.d_P))
-    eps = eps.to(args.device)
+def compute_phase_space_motion_vector(
+    *, batch_size, d_E, d_L, d_P, device, dataset, n_frames, rnn
+):
+    eps = Variable(torch.randn(batch_size, d_E + d_L + d_P))
+    eps = eps.to(device)
 
-    rnn.initHidden(args.batch_size)
+    rnn.initHidden(batch_size)
     # notice that 1st dim of gru outputs is seq_len, 2nd is batch_size
     z_M, dz_M = rnn(eps, n_frames)
     z_M = z_M.transpose(1, 0)
     dz_M = dz_M.transpose(1, 0)
     if config.experiment.hamiltonian_physics_rt:
-        fake_labels = dataset.get_fake_labels(args.batch_size)
+        fake_labels = dataset.get_fake_labels(batch_size)
     else:
-        fake_labels = Variable(torch.LongTensor(np.zeros((args.batch_size,))))
-    fake_props = eps[:, -(args.d_L + args.d_P) :] if (args.d_L + args.d_P) > 0 else None
+        fake_labels = Variable(torch.LongTensor(np.zeros((batch_size,))))
+    fake_props = eps[:, -(d_L + d_P) :] if (d_L + d_P) > 0 else None
     return z_M, dz_M, fake_labels, fake_props
 
 
-def compute_mass_motion_vector(args, n_frames, rnn):
-    eps = Variable(torch.randn(args.batch_size, args.d_E))
-    Z_mass = Variable(torch.randn(args.batch_size, args.d_N))
+def compute_mass_motion_vector(batch_size, d_E, d_N, device, n_frames, rnn):
+    eps = Variable(torch.randn(batch_size, d_E))
+    Z_mass = Variable(torch.randn(batch_size, d_N))
 
-    eps = eps.to(args.device)
-    Z_mass = Z_mass.to(args.device)
+    eps = eps.to(device)
+    Z_mass = Z_mass.to(device)
 
-    rnn.initHidden(args.batch_size)
+    rnn.initHidden(batch_size)
     # notice that 1st dim of hnn outputs is seq_len, 2nd is batch_size
     z_M, z_mass = rnn(eps, Z_mass, n_frames)
 
@@ -506,13 +556,12 @@ def compute_mass_motion_vector(args, n_frames, rnn):
     return z_M, z_mass
 
 
-def get_simple_sample(args, rnn, n_frames):
+def get_simple_sample(*, batch_size, d_C, d_E, nz, device, rnn, n_frames):
     """
     generates latent sample that serves as an input to the generator
     the motion sample is generated with rnn
 
     Args:
-        args (ArgumentParser): experiment parameters
         rnn: motion model
         n_frames (int): video length
 
@@ -520,20 +569,21 @@ def get_simple_sample(args, rnn, n_frames):
         z (Tensor): latent sample
     """
 
-    z_C = get_random_content_vector(args, n_frames)
-    z_M = compute_simple_motion_vector(args, n_frames, rnn)
+    z_C = get_random_content_vector(batch_size, d_C, device, n_frames)
+    z_M = compute_simple_motion_vector(batch_size, d_E, device, n_frames, rnn)
     z = torch.cat((z_M, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
 
-    return z.view(args.batch_size, n_frames, args.nz, 1, 1), None, None, None
+    return z.view(batch_size, n_frames, nz, 1, 1), None, None, None
 
 
-def get_phase_space_sample(args, dataset, rnn, n_frames):
+def get_phase_space_sample(
+    *, batch_size, d_C, d_E, d_L, d_P, device, nz, dataset, rnn, n_frames
+):
     """
     generates latent sample that serves as an input to the generator
     the motion sample is generated with rnn
 
     Args:
-        args (ArgumentParser): experiment parameters
         rnn: motion model
         n_frames (int): video length
 
@@ -541,22 +591,28 @@ def get_phase_space_sample(args, dataset, rnn, n_frames):
         z (Tensor): latent sample
     """
 
-    z_C = get_random_content_vector(args, n_frames)
+    z_C = get_random_content_vector(batch_size, d_C, device, n_frames)
     z_M, dz_M, labels, props = compute_phase_space_motion_vector(
-        args, dataset, n_frames, rnn
+        batch_size=batch_size,
+        d_E=d_E,
+        d_L=d_L,
+        d_P=d_P,
+        device=device,
+        dataset=dataset,
+        n_frames=n_frames,
+        rnn=rnn,
     )
     z = torch.cat((z_M, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
 
-    return z.view(args.batch_size, n_frames, args.nz, 1, 1), dz_M, labels, props
+    return z.view(batch_size, n_frames, nz, 1, 1), dz_M, labels, props
 
 
-def get_mass_sample(args, rnn, n_frames):
+def get_mass_sample(batch_size, d_C, d_E, d_N, device, nz, rnn, n_frames):
     """
     generates latent sample that serves as an input to the generator
     the motion sample is generated with rnn
 
     Args:
-        args (ArgumentParser): experiment parameters
         rnn: motion model
         n_frames (int): video length
 
@@ -564,8 +620,9 @@ def get_mass_sample(args, rnn, n_frames):
         z (Tensor): latent sample
     """
 
-    z_C = get_random_content_vector(args, n_frames)
-    z_M, z_mass = compute_mass_motion_vector(args, n_frames, rnn)
-    # import pdb; pdb.set_trace()
+    z_C = get_random_content_vector(batch_size, d_C, device, n_frames)
+    z_M, z_mass = compute_mass_motion_vector(
+        batch_size, d_E, d_N, device, n_frames, rnn
+    )
     z = torch.cat((z_M, z_mass, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
-    return z.view(args.batch_size, n_frames, args.nz, 1, 1), None, None, None
+    return z.view(batch_size, n_frames, nz, 1, 1), None, None, None

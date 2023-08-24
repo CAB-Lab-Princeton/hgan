@@ -221,12 +221,12 @@ class GRU(nn.Module):
 
     """
 
-    def __init__(self, args, input_size, hidden_size, dropout=0, gpu=True):
+    def __init__(self, *, device, input_size, hidden_size, dropout=0, gpu=True):
         super(GRU, self).__init__()
 
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.device = args.device
+        self.device = device
         self._gpu = gpu
 
         # define layers
@@ -279,20 +279,19 @@ class HNNSimple(nn.Module):
         1 * MLP
     """
 
-    def __init__(self, args, input_size, hidden_size, dt=0.05):
+    def __init__(self, *, device, input_size, hidden_size, dt=0.05):
         """
         Parameters:
         ----------
-            args   (argparse): training arguments
             input_size (int): input size
             hidden_size (int): hidden dimension for mlp
             dt (float): timestep in integration
         """
         super(HNNSimple, self).__init__()
 
-        self.device = args.device
+        self.device = device
         self.dt = dt
-        self.hnn = MLP(input_size, hidden_size, 1, nonlinearity="relu").to(args.device)
+        self.hnn = MLP(input_size, hidden_size, 1, nonlinearity="relu").to(device)
 
     def forward(self, x, n_frames):
         outputs = [x]
@@ -361,20 +360,21 @@ class HNNPhaseSpace(HNNSimple):
         2 * MLP
     """
 
-    def __init__(self, args, input_size, hidden_size, output_size, dt=0.05):
+    def __init__(self, *, device, input_size, hidden_size, output_size, dt=0.05):
         """
         Parameters:
         ----------
-            args   (argparse): training arguments
             input_size (int): input size
             hidden_size (int): hidden dimension for mlp
             output_size (int): dimension of T*Q
             dt (float): timestep in integration
         """
-        super(HNNPhaseSpace, self).__init__(args, input_size, hidden_size, dt=dt)
+        super(HNNPhaseSpace, self).__init__(
+            device=device, input_size=input_size, hidden_size=hidden_size, dt=dt
+        )
         # Note: in Keras implementation the authors use a lrelu for the W map
         # https://keras.io/examples/generative/stylegan/
-        self.phase_space_map = MLP(input_size, hidden_size, output_size).to(args.device)
+        self.phase_space_map = MLP(input_size, hidden_size, output_size).to(device)
 
     def forward(self, TM_noise, n_frames):
         x = self.phase_space_map(TM_noise)
@@ -405,21 +405,26 @@ class HNNMass(HNNPhaseSpace):
         3 * MLP
     """
 
-    def __init__(self, args, input_size, hidden_size, output_size, dt=0.05):
+    def __init__(self, *, device, input_size, hidden_size, output_size, dt=0.05):
         """
         Parameters:
         ----------
-            args   (argparse): training arguments
             input_size (int): input size
             hidden_size (int): hidden dimension for mlp
             output_size (int): dimension of T*Q
             dt (float): timestep in integration
         """
-        super(HNNMass, self).__init__(args, input_size, hidden_size, output_size, dt=dt)
+        super(HNNMass, self).__init__(
+            device=device,
+            input_size=input_size,
+            hidden_size=hidden_size,
+            output_size=output_size,
+            dt=dt,
+        )
         self.config_space_map = self.phase_space_map
         self.dim = int(output_size / 2)
         M_size = self.dim**2
-        self.M_map = MLP(M_size, hidden_size, M_size).to(args.device)
+        self.M_map = MLP(M_size, hidden_size, M_size).to(device)
 
     def build_mass_matrix(self, M_noise):
         A_ravel = self.M_map(M_noise)
@@ -494,20 +499,23 @@ class Flatten(nn.Module):
         return input.view(input.size(0), -1)
 
 
-def build_models(args):
-    dis_i = Discriminator_I(args.nc, args.ndf, ngpu=args.ngpu).to(args.device)
-    dis_v = Discriminator_V(
-        args.nc, args.ndf, T=config.video.frames, ngpu=args.ngpu
-    ).to(args.device)
-    gen_i = Generator_I(args.nc, args.ngf, args.nz, ngpu=args.ngpu).to(args.device)
+def build_models(
+    *, rnn, rnn_type, nc, ndf, ngpu, ngf, nz, d_E, d_L, d_P, hidden_size, device
+):
+    dis_i = Discriminator_I(nc, ndf, ngpu=ngpu).to(device)
+    dis_v = Discriminator_V(nc, ndf, T=config.video.frames, ngpu=ngpu).to(device)
+    gen_i = Generator_I(nc, ngf, nz, ngpu=ngpu).to(device)
 
-    if args.rnn_type in ("hnn_phase_space", "hnn_mass"):
-        rnn = args.rnn(
-            args, args.d_E + args.d_L + args.d_P, args.hidden_size, args.d_E
-        ).to(args.device)
+    if rnn_type in ("hnn_phase_space", "hnn_mass"):
+        rnn_ = rnn(
+            device=device,
+            input_size=d_E + d_L + d_P,
+            hidden_size=hidden_size,
+            output_size=d_E,
+        ).to(device)
     else:
-        rnn = args.rnn(args, args.d_E, args.hidden_size).to(args.device)
+        rnn_ = rnn(d_E, hidden_size).to(device)
 
-    rnn.initWeight()
+    rnn_.initWeight()
 
-    return {"Di": dis_i, "Dv": dis_v, "Gi": gen_i, "RNN": rnn}
+    return {"Di": dis_i, "Dv": dis_v, "Gi": gen_i, "RNN": rnn_}

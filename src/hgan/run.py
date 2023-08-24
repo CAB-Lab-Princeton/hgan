@@ -2,7 +2,7 @@ import os.path
 import torch
 import argparse
 from hgan.train import run_experiment
-from hgan.configuration import config
+from hgan.configuration import config, save_config
 from hgan.models import GRU, HNNSimple, HNNPhaseSpace, HNNMass
 
 RNN_TYPE = {
@@ -13,7 +13,8 @@ RNN_TYPE = {
 }
 
 
-def get_parser(parser):
+def get_parser():
+    parser = argparse.ArgumentParser()
     parser.add_argument(
         "--gpuid",
         type=int,
@@ -33,13 +34,16 @@ def get_parser(parser):
         type=str,
         default=config.paths.input,
         help="set data directory",
-        required=True,
     )
     parser.add_argument(
-        "--generated_videos_dir", type=str, default=config.paths.output, required=True
+        "--generated_videos_dir",
+        type=str,
+        default=config.paths.output,
     )
     parser.add_argument(
-        "--trained_models_dir", type=str, default=config.paths.output, required=True
+        "--trained_models_dir",
+        type=str,
+        default=config.paths.output,
     )
 
     parser.add_argument(
@@ -93,13 +97,15 @@ def get_parser(parser):
     return parser
 
 
-def add_dependent_args(args, video_type, rnn_type):
+def add_dependent_args(args):
     # Add arguments not specified on the command line, but derived from existing arguments
-    if video_type is not None:
-        args.datapath = os.path.join(args.data_dir, video_type)
+    if args.video_type is not None:
+        args.datapath = os.path.join(args.data_dir, args.video_type)
+    else:
+        args.datapath = None
 
     # set rnn module {gru, hnn_simple}
-    args.rnn = RNN_TYPE[rnn_type]
+    args.rnn = RNN_TYPE[args.rnn_type]
 
     if args.gpuid < 0 or not torch.cuda.is_available():
         args.device = "cpu"
@@ -136,21 +142,14 @@ def add_dependent_args(args, video_type, rnn_type):
 
     args.nz = (
         args.q_size + int((args.d_N + args.q_size) / 2) + args.d_C
-        if rnn_type == "hnn_mass"
+        if args.rnn_type == "hnn_mass"
         else args.d_C + args.d_M
     )
 
 
 def main(*args):
-    parser = argparse.ArgumentParser(description=__doc__)
-    args = get_parser(parser).parse_args(args)
+    args = get_parser().parse_args(args)
+    add_dependent_args(args)
 
-    video_type = args.video_type
-
-    rnn_types = args.rnn_type
-    if isinstance(rnn_types, str):
-        rnn_types = [rnn_types]
-
-    for rnn_type in rnn_types:
-        add_dependent_args(args, video_type, rnn_type)
-        run_experiment(args)
+    save_config(args.trained_models_dir)
+    run_experiment(args)

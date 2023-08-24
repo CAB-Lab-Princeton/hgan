@@ -1,5 +1,6 @@
 import os
-from hgan.configuration import config
+import tempfile
+from hgan.configuration import config, show_config
 
 
 def test_str():
@@ -27,3 +28,8 @@ def test_override():
     assert config.test.aint == 84
     if old_value is not None:
         os.environ["HGAN_TEST_AINT"] = old_value
+
+
+def test_save():
+    with tempfile.NamedTemporaryFile(mode="w") as f:
+        show_config(f.name)

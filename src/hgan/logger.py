@@ -15,9 +15,9 @@ def save_video(folder, fake_video, epoch):
     skvideo.io.vwrite(file_path, outputdata, verbosity=0)
 
 
-def save_checkpoint(args, model, optimizer, epoch):
+def save_checkpoint(*, trained_models_dir, model, optimizer, epoch):
     filename = os.path.join(
-        args.trained_models_dir, "%s_epoch-%d" % (model.__class__.__name__, epoch)
+        trained_models_dir, "%s_epoch-%d" % (model.__class__.__name__, epoch)
     )
     torch.save(model.state_dict(), filename + ".model")
     torch.save(optimizer.state_dict(), filename + ".state")

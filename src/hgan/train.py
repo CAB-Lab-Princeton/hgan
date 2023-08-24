@@ -9,21 +9,40 @@ from hgan.utils import setup_reproducibility, timeSince
 from hgan.configuration import config
 
 
-def build_optimizers(args, models):
+def build_optimizers(*, lr, betas, models):
     optims = {}
     for k in models.keys():
-        optims[k] = optim.Adam(models[k].parameters(), lr=args.lr, betas=args.betas)
+        optims[k] = optim.Adam(models[k].parameters(), lr=lr, betas=betas)
 
     return optims
 
 
-def train_step(args, videos_dataloader, models, optims):
+def train_step(
+    *,
+    rnn_type,
+    label,
+    criterion,
+    q_size,
+    batch_size,
+    cyclic_coord_loss,
+    d_C,
+    d_E,
+    d_L,
+    d_P,
+    d_N,
+    nz,
+    nc,
+    img_size,
+    device,
+    videos_dataloader,
+    models,
+    optims
+):
     """
     single training step
 
     Parameters:
     ----------
-        args   (argparse): training arguments
         videos_dataloader (torch.data.Dataloader)
         models (nn.Module): discriminators (image and video), generators (image and video), rnn
         optims (torch.optim): optimizers for models
@@ -37,18 +56,73 @@ def train_step(args, videos_dataloader, models, optims):
     """
     video_lengths = videos_dataloader.dataset.video_lengths
 
-    real_data = get_real_data(args, videos_dataloader)
+    real_data = get_real_data(device=device, videos_dataloader=videos_dataloader)
     fake_data = get_fake_data(
-        args, videos_dataloader.dataset, video_lengths, models["RNN"], models["Gi"]
+        rnn_type=rnn_type,
+        batch_size=batch_size,
+        d_C=d_C,
+        d_E=d_E,
+        d_L=d_L,
+        d_P=d_P,
+        d_N=d_N,
+        device=device,
+        nz=nz,
+        nc=nc,
+        img_size=img_size,
+        dataset=videos_dataloader.dataset,
+        video_lengths=video_lengths,
+        rnn=models["RNN"],
+        gen_i=models["Gi"],
+        T=None,
     )
 
-    err, mean = update_models(args, models, optims, real_data, fake_data)
+    err, mean = update_models(
+        rnn_type=rnn_type,
+        label=label,
+        criterion=criterion,
+        q_size=q_size,
+        batch_size=batch_size,
+        cyclic_coord_loss=cyclic_coord_loss,
+        models=models,
+        optims=optims,
+        real_data=real_data,
+        fake_data=fake_data,
+    )
 
     return err, mean, fake_data["videos"]
 
 
-def train(args, models, videos_dataloader, retrain=False):
-    optims = build_optimizers(args, models)
+def train(
+    *,
+    rnn_type,
+    label,
+    criterion,
+    seed,
+    lr,
+    betas,
+    batch_size,
+    q_size,
+    cyclic_coord_loss,
+    d_C,
+    d_E,
+    d_L,
+    d_P,
+    d_N,
+    nz,
+    nc,
+    img_size,
+    trained_models_dir,
+    generated_videos_dir,
+    device,
+    niter,
+    print_every,
+    save_output_every,
+    save_model_every,
+    models,
+    videos_dataloader,
+    retrain=False
+):
+    optims = build_optimizers(lr=lr, betas=betas, models=models)
 
     enable_wandb = config.experiment.wandb_api_key is not None
     if enable_wandb:
@@ -56,26 +130,45 @@ def train(args, models, videos_dataloader, retrain=False):
         wandb.init(
             project="hgan",
             config={
-                "learning_rate": args.lr,
-                "rnn_type": args.rnn_type,
-                "seed": args.seed,
-                "batch_size": args.batch_size,
-                "betas": args.betas,
+                "learning_rate": lr,
+                "rnn_type": rnn_type,
+                "seed": seed,
+                "batch_size": batch_size,
+                "betas": betas,
             },
         )
 
     models, optims, max_saved_epoch = load(
         models,
         optims,
-        trained_models_dir=args.trained_models_dir,
+        trained_models_dir=trained_models_dir,
         retrain=retrain,
-        device=args.device,
+        device=device,
     )
 
     start_time = time.time()
 
-    for epoch in range(max_saved_epoch + 1, args.niter + 1):
-        err, mean, fake_videos = train_step(args, videos_dataloader, models, optims)
+    for epoch in range(max_saved_epoch + 1, niter + 1):
+        err, mean, fake_videos = train_step(
+            rnn_type=rnn_type,
+            label=label,
+            criterion=criterion,
+            q_size=q_size,
+            batch_size=batch_size,
+            cyclic_coord_loss=cyclic_coord_loss,
+            d_C=d_C,
+            d_E=d_E,
+            d_L=d_L,
+            d_P=d_P,
+            d_N=d_N,
+            nz=nz,
+            nc=nc,
+            img_size=img_size,
+            device=device,
+            videos_dataloader=videos_dataloader,
+            models=models,
+            optims=optims,
+        )
 
         if enable_wandb:
             wandb.log(
@@ -88,13 +181,12 @@ def train(args, models, videos_dataloader, retrain=False):
                 }
             )
 
-        # logging
-        if epoch % args.print == 0:
+        if epoch % print_every == 0:
             print(
                 "[%d/%d] (%s) Loss_Di: %.4f Loss_Dv: %.4f Loss_Gi: %.4f Loss_Gv: %.4f Di_real_mean %.4f Di_fake_mean %.4f Dv_real_mean %.4f Dv_fake_mean %.4f"
                 % (
                     epoch,
-                    args.niter,
+                    niter,
                     timeSince(start_time),
                     err["Di"],
                     err["Dv"],
@@ -107,16 +199,21 @@ def train(args, models, videos_dataloader, retrain=False):
                 )
             )
 
-        if epoch % args.save_output == 0:
+        if epoch % save_output_every == 0:
             save_video(
-                args.generated_videos_dir,
+                generated_videos_dir,
                 fake_videos[0].data.cpu().numpy().transpose(1, 2, 3, 0),
                 epoch,
             )
 
-        if epoch % args.save_model == 0:
+        if epoch % save_model_every == 0:
             for k in models.keys():
-                save_checkpoint(args, models[k], optims[k], epoch)
+                save_checkpoint(
+                    trained_models_dir=trained_models_dir,
+                    model=models[k],
+                    optimizer=optims[k],
+                    epoch=epoch,
+                )
 
     if enable_wandb:
         wandb.finish()
@@ -125,7 +222,50 @@ def train(args, models, videos_dataloader, retrain=False):
 def run_experiment(
     args, run_train=True, retrain=False, return_net=False, shuffle=True, drop_last=True
 ):
-    setup_reproducibility(args.seed)
-    videos_dataloader = build_dataloader(args)
-    models = build_models(args)
-    train(args, models, videos_dataloader, retrain=config.experiment.retrain)
+    setup_reproducibility(seed=args.seed)
+    videos_dataloader = build_dataloader(
+        video_type=args.video_type, datapath=args.datapath, batch_size=args.batch_size
+    )
+    models = build_models(
+        rnn=args.rnn,
+        rnn_type=args.rnn_type,
+        nc=args.nc,
+        ndf=args.ndf,
+        ngpu=args.ngpu,
+        ngf=args.ngf,
+        nz=args.nz,
+        d_E=args.d_E,
+        d_L=args.d_L,
+        d_P=args.d_P,
+        hidden_size=args.hidden_size,
+        device=args.device,
+    )
+    train(
+        rnn_type=args.rnn_type,
+        label=args.label,
+        criterion=args.criterion,
+        seed=args.seed,
+        lr=args.lr,
+        betas=args.betas,
+        batch_size=args.batch_size,
+        q_size=args.q_size,
+        cyclic_coord_loss=args.cyclic_coord_loss,
+        d_C=args.d_C,
+        d_E=args.d_E,
+        d_L=args.d_L,
+        d_P=args.d_P,
+        d_N=args.d_N,
+        nz=args.nz,
+        nc=args.nc,
+        img_size=args.img_size,
+        trained_models_dir=args.trained_models_dir,
+        generated_videos_dir=args.generated_videos_dir,
+        device=args.device,
+        niter=args.niter,
+        print_every=args.print,
+        save_output_every=args.save_output,
+        save_model_every=args.save_model,
+        models=models,
+        videos_dataloader=videos_dataloader,
+        retrain=config.experiment.retrain,
+    )
