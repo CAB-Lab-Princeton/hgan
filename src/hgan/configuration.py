@@ -88,9 +88,14 @@ def save_config(folder):
         config.config.write(f)
 
 
-def load_config(folder):
+def load_config(file_or_folder_path):
     global config
-    config_file = os.path.join(folder, "configuration.ini")
+    assert os.path.exists(file_or_folder_path)
+    if os.path.isdir(file_or_folder_path):
+        config_file = os.path.join(file_or_folder_path, "configuration.ini")
+    else:
+        config_file = file_or_folder_path
+
     config = Config("hgan", config_file)
     return config
 

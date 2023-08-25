@@ -221,7 +221,7 @@ class GRU(nn.Module):
 
     """
 
-    def __init__(self, *, device, input_size, hidden_size, dropout=0, gpu=True):
+    def __init__(self, device, input_size, hidden_size, dropout=0, gpu=True):
         super(GRU, self).__init__()
 
         self.input_size = input_size
@@ -456,7 +456,6 @@ class HNNMass(HNNPhaseSpace):
 
         outputs = torch.stack(outputs)
         qs = torch.stack(qs)
-        # import pdb; pdb.set_trace()
 
         ind = torch.tril_indices(self.dim, self.dim)
         lower_tri = J[:, ind[0], ind[1]]
@@ -497,25 +496,3 @@ class MLP(nn.Module):
 class Flatten(nn.Module):
     def forward(self, input):
         return input.view(input.size(0), -1)
-
-
-def build_models(
-    *, rnn, rnn_type, nc, ndf, ngpu, ngf, nz, d_E, d_L, d_P, hidden_size, device
-):
-    dis_i = Discriminator_I(nc, ndf, ngpu=ngpu).to(device)
-    dis_v = Discriminator_V(nc, ndf, T=config.video.frames, ngpu=ngpu).to(device)
-    gen_i = Generator_I(nc, ngf, nz, ngpu=ngpu).to(device)
-
-    if rnn_type in ("hnn_phase_space", "hnn_mass"):
-        rnn_ = rnn(
-            device=device,
-            input_size=d_E + d_L + d_P,
-            hidden_size=hidden_size,
-            output_size=d_E,
-        ).to(device)
-    else:
-        rnn_ = rnn(d_E, hidden_size).to(device)
-
-    rnn_.initWeight()
-
-    return {"Di": dis_i, "Dv": dis_v, "Gi": gen_i, "RNN": rnn_}
