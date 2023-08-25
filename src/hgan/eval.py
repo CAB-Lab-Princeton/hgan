@@ -340,9 +340,8 @@ def select_ckpts(saved_epochs, num_elements=10):
 
 if __name__ == "__main__":
 
-    config = load_config("/parent/folder/of/configuration.ini/")
+    config = load_config("/media/vineetb/T7/cablanc/out/")
 
-    parser = get_parser()
     args = get_parser().parse_args()
     add_dependent_args(args)
 

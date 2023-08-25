@@ -5,7 +5,7 @@ from skimage.transform import resize
 import numpy as np
 import torch
 from torch.autograd import Variable
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 import jax
 import functools
 from hgan.dm_hamiltonian_dynamics_suite import datasets
@@ -47,7 +47,6 @@ class ToyPhysicsDataset(Dataset):
         self.T = config.video.frames
         self.resize = resize
         self.normalize = normalize
-        # self.verbose = verbose
 
         self.delta = delta
         self.datapath = os.path.join(datapath, train_test)
@@ -92,11 +91,9 @@ class ToyPhysicsDataset(Dataset):
         return len(self.files)
 
     def __getitem__(self, idx):
-        # import pdb; pdb.set_trace()
         filename = os.path.join(self.datapath, f"{idx:06}.npy")
 
         vid = np.load(filename)
-        # import pdb; pdb.set_trace()
         vid = vid[:: self.delta]  # orig dt is 0.05
         n_frames, img_size, _, nc = vid.shape
 
@@ -198,20 +195,23 @@ class ToyPhysicsDatasetNPZ(Dataset):
 
 
 class RealtimeDataset(Dataset):
-    def __init__(self, system_name=None, num_frames=16, delta=1, train=True):
+    def __init__(self, config, system_name=None, num_frames=16, delta=1, train=True):
+
+        self.config = config
+
         jax.config.update("jax_enable_x64", True)
 
         if system_name is None:
             system_names = all_systems
-            if config.experiment.system_color_constant:
+            if self.config.experiment.system_color_constant:
                 system_names = [x for x in system_names if "_COLORS" not in x]
-            if config.experiment.system_friction:
+            if self.config.experiment.system_friction:
                 system_names = [x for x in system_names if "_FRICTION" in x]
         else:
             system_name = system_name.upper()
-            if not config.experiment.system_color_constant:
+            if not self.config.experiment.system_color_constant:
                 system_name += "_COLORS"
-            if config.experiment.system_friction:
+            if self.config.experiment.system_friction:
                 system_name += "_FRICTION"
 
             assert system_name in all_systems, f"Unknown system {system_name}"
@@ -227,7 +227,7 @@ class RealtimeDataset(Dataset):
         # Calling code in `get_fake_data` decides to randomly sample these `video_lengths`
         # to decide on the length of a fake video sample, so it is okay to initialize `video_lengths`
         # with a single value.
-        self.video_lengths = [config.video.total_frames]
+        self.video_lengths = [self.config.video.total_frames]
 
         self.generate_fn = {}  # Generate functions, keyed by system
         self.features = {}  # Fixed features across all trajectories, keyed by system
@@ -238,11 +238,11 @@ class RealtimeDataset(Dataset):
 
             # Tweak the physics parameters to our liking
             # TODO: Is this okay to do for speedup? Will this modify the characteristics of the experiment drastically?
-            config_dict["image_resolution"] = config.arch.img_size
+            config_dict["image_resolution"] = self.config.arch.img_size
             _physics_key = (
                 system_name.replace("COLORS", "").replace("FRICTION", "").rstrip("_")
             )
-            if config.experiment.system_physics_constant:
+            if self.config.experiment.system_physics_constant:
                 config_dict |= constant_physics[_physics_key]
             else:
                 config_dict |= variable_physics[_physics_key]
@@ -254,7 +254,7 @@ class RealtimeDataset(Dataset):
                 system=obj,
                 dt=0.05,  # Blanchette 2021
                 # num_steps is always 1 less than the no. of samples we wish to generate
-                num_steps=config.video.total_frames - 1,
+                num_steps=self.config.video.total_frames - 1,
                 steps_per_dt=1,
             )
 
@@ -265,7 +265,7 @@ class RealtimeDataset(Dataset):
         return 50_000 if self.train else 10_000  # Blanchette 2021
 
     def _physics_vector_from_data(self, data):
-        props = np.zeros((config.arch.dp,))
+        props = np.zeros((self.config.arch.dp,))
 
         i = 0
         # note: dicts are ordered in py >= 3.7 so we have a deterministic order
@@ -303,10 +303,12 @@ class RealtimeDataset(Dataset):
         end = start + self.num_frames
         vid = vid[start:end]
 
-        if img_size != config.arch.img_size:
+        if img_size != self.config.arch.img_size:
             vid = np.asarray(
                 [
-                    resize(img, (config.arch.img_size, config.arch.img_size, nc))
+                    resize(
+                        img, (self.config.arch.img_size, self.config.arch.img_size, nc)
+                    )
                     for img in vid
                 ]
             )
@@ -314,7 +316,7 @@ class RealtimeDataset(Dataset):
         # transpose each video to (nc, n_frames, img_size, img_size), and divide by 255
         vid = vid.transpose(3, 0, 1, 2)
 
-        if config.video.normalize:
+        if self.config.video.normalize:
             vid = (vid - 0.5) / 0.5
 
         props = self._physics_vector_from_data(data)
@@ -325,33 +327,6 @@ class RealtimeDataset(Dataset):
             torch.LongTensor(np.random.randint(0, len(self.system_names), batch_size))
         )
         return fake_labels
-
-
-def build_dataloader(*, video_type, datapath, batch_size):
-    videos_dataset = get_dataset(video_type=video_type, datapath=datapath)
-    if len(videos_dataset) == 0:
-        raise RuntimeError("No videos found!")
-    videos_dataloader = DataLoader(
-        videos_dataset, batch_size=batch_size, shuffle=True, pin_memory=True
-    )
-
-    return videos_dataloader
-
-
-def get_dataset(*, video_type, datapath):
-    """
-    builds a dataloader
-
-    Args:
-        args (ArgumentParser): experiment parameters
-
-    Returns:
-        Dataset
-    """
-    if config.experiment.hamiltonian_physics_rt:
-        return RealtimeDataset(system_name=video_type, num_frames=config.video.frames)
-    else:
-        return ToyPhysicsDatasetNPZ(datapath, num_frames=config.video.frames)
 
 
 def get_real_data(*, device, videos_dataloader):
@@ -365,7 +340,7 @@ def get_real_data(*, device, videos_dataloader):
     Returns:
         real_data (dict): (sample videos, sample images)
     """
-    real_videos = real_system = real_props = None
+    real_system = real_props = None
     next_item = next(iter(videos_dataloader))
     if isinstance(next_item, (tuple, list)):
         real_videos = next_item[0]
@@ -473,7 +448,7 @@ def get_fake_data(
 def get_latent_sample(
     *, rnn_type, batch_size, d_C, d_E, d_L, d_P, d_N, device, nz, dataset, rnn, n_frames
 ):
-    if rnn_type in ["gru", "hnn_simple"]:
+    if rnn_type in ("gru", "hnn_simple"):
         return get_simple_sample(rnn, n_frames)
     elif rnn_type in ["hnn_phase_space"]:
         return get_phase_space_sample(

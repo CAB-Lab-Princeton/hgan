@@ -1,11 +1,10 @@
 import time
 from torch import optim
 import wandb
-from hgan.models import build_models
 from hgan.updates import update_models
-from hgan.dataset import get_real_data, get_fake_data, build_dataloader
+from hgan.dataset import get_real_data, get_fake_data
 from hgan.logger import load, save_checkpoint, save_video
-from hgan.utils import setup_reproducibility, timeSince
+from hgan.utils import timeSince
 from hgan.configuration import config
 
 
@@ -217,55 +216,3 @@ def train(
 
     if enable_wandb:
         wandb.finish()
-
-
-def run_experiment(
-    args, run_train=True, retrain=False, return_net=False, shuffle=True, drop_last=True
-):
-    setup_reproducibility(seed=args.seed)
-    videos_dataloader = build_dataloader(
-        video_type=args.video_type, datapath=args.datapath, batch_size=args.batch_size
-    )
-    models = build_models(
-        rnn=args.rnn,
-        rnn_type=args.rnn_type,
-        nc=args.nc,
-        ndf=args.ndf,
-        ngpu=args.ngpu,
-        ngf=args.ngf,
-        nz=args.nz,
-        d_E=args.d_E,
-        d_L=args.d_L,
-        d_P=args.d_P,
-        hidden_size=args.hidden_size,
-        device=args.device,
-    )
-    train(
-        rnn_type=args.rnn_type,
-        label=args.label,
-        criterion=args.criterion,
-        seed=args.seed,
-        lr=args.lr,
-        betas=args.betas,
-        batch_size=args.batch_size,
-        q_size=args.q_size,
-        cyclic_coord_loss=args.cyclic_coord_loss,
-        d_C=args.d_C,
-        d_E=args.d_E,
-        d_L=args.d_L,
-        d_P=args.d_P,
-        d_N=args.d_N,
-        nz=args.nz,
-        nc=args.nc,
-        img_size=args.img_size,
-        trained_models_dir=args.trained_models_dir,
-        generated_videos_dir=args.generated_videos_dir,
-        device=args.device,
-        niter=args.niter,
-        print_every=args.print,
-        save_output_every=args.save_output,
-        save_model_every=args.save_model,
-        models=models,
-        videos_dataloader=videos_dataloader,
-        retrain=config.experiment.retrain,
-    )
