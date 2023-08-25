@@ -37,6 +37,9 @@ def main():
         ] = "0"  # Run with varying colors
         run(*args)
 
+    with tempfile.TemporaryDirectory() as output_dir:
+        os.environ["HGAN_PATHS_OUTPUT"] = output_dir
+
         logger.info("Running model against packaged .npz files")
 
         os.environ["HGAN_EXPERIMENT_HAMILTONIAN_PHYSICS_RT"] = "0"
