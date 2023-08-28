@@ -55,7 +55,8 @@ class ConfigSection(object):
             return config_value
 
     def items(self):
-        return self.d.items()
+        for k in self.d:
+            yield k, getattr(self, k)
 
 
 class Config(object):

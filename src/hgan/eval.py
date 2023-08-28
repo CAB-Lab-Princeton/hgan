@@ -84,7 +84,7 @@ def viz_short_trajectory(batch_size, fake_data_np, save_path):
         ax.axis("off")
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    plt.savefig(save_path, transparent=True)
+    plt.savefig(save_path)
 
 
 def viz_long_trajectory(fake_data_np, save_path):
@@ -104,23 +104,15 @@ def viz_long_trajectory(fake_data_np, save_path):
         ax.axis("off")
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    plt.savefig(save_path, transparent=True)
+    plt.savefig(save_path)
 
 
 def qualitative_results_img(
     experiment, n_frames, short_video_save_path, long_video_save_path
 ):
     fake_data = experiment.get_fake_data(
-        rnn_type=experiment.config.experiment.architecture,
-        batch_size=experiment.config.experiment.batch_size,
-        d_C=experiment.d_C,
-        d_E=experiment.d_E,
-        d_L=experiment.d_L,
-        d_P=experiment.d_P,
-        d_N=experiment.d_N,
-        device=experiment.device,
         nz=experiment.nz,
-        nc=experiment.nc,
+        nc=experiment.ndim_channel,
         img_size=experiment.img_size,
         dataset=experiment.dataloader.dataset,
         video_lengths=[n_frames],
@@ -141,14 +133,14 @@ def qualitative_results_latent(experiment, n_frames, batch_size, save_path):
     # embedding = pacmap.PaCMAP(n_components=2, n_neighbors=None, MN_ratio=0.5, FP_ratio=2.0)
     # X_transformed = embedding.fit_transform(X, init="pca")
 
-    Z, dz, _, _ = experiment.get_latent_sample(
+    Z, _, _, _ = experiment.get_latent_sample(
         rnn_type=experiment.config.experiment.architecture,
         batch_size=batch_size,
-        d_C=experiment.d_C,
-        d_E=experiment.d_E,
-        d_L=experiment.d_L,
-        d_P=experiment.d_P,
-        d_N=experiment.d_N,
+        d_C=experiment.ndim_content,
+        d_E=experiment.ndim_epsilon,
+        d_L=experiment.ndim_label,
+        d_P=experiment.ndim_physics,
+        d_N=experiment.ndim_q2,
         device=experiment.device,
         nz=experiment.nz,
         dataset=experiment.dataloader.dataset,
@@ -157,25 +149,27 @@ def qualitative_results_latent(experiment, n_frames, batch_size, save_path):
     )
 
     X = [
-        Z[i, 0, : experiment.q_size].data.cpu().numpy().squeeze()
+        Z[i, 0, : experiment.ndim_q].data.cpu().numpy().squeeze()
         for i in range(batch_size)
     ]
-    X = np.asarray(X).reshape(-1, experiment.q_size)
+    X = np.asarray(X).reshape(-1, experiment.ndim_q)
 
-    # 2, 5, 30, 50, 100
-    X2 = TSNE(n_components=2, perplexity=2, init="random").fit_transform(X)
-    X5 = TSNE(n_components=2, perplexity=5, init="random").fit_transform(X)
-    X30 = TSNE(n_components=2, perplexity=30, init="random").fit_transform(X)
-    X50 = TSNE(n_components=2, perplexity=50, init="random").fit_transform(X)
-    X100 = TSNE(n_components=2, perplexity=100, init="random").fit_transform(X)
+    perplexity_values = (2, 5, 30, 50, 100)
+    tsnes = [
+        TSNE(n_components=2, perplexity=p, init="random").fit_transform(X)
+        for p in perplexity_values
+    ]
 
-    fig, axs = plt.subplots(ncols=5, nrows=1, figsize=(20, 6), layout="constrained")
+    fig, axs = plt.subplots(
+        ncols=len(tsnes), nrows=1, figsize=(20, 6), layout="constrained"
+    )
 
-    for ind, X in zip(range(5), [X2, X5, X30, X50, X100]):
-        axs[ind].plot(X[:, 0], X[:, 1], ".")
-        axs[ind].axis("off")
+    for i, tsne in enumerate(tsnes):
+        axs[i].plot(tsne[:, 0], tsne[:, 1], ".")
+        axs[i].axis("off")
 
-    plt.savefig(save_path, transparent=True)
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path)
 
 
 def load_generated_imgs(generated_img_path):
@@ -202,7 +196,6 @@ def load_real_imgs(videos_dataloader, fvd_batch_size):
 
 
 def fvd_resize(imgs, num_videos, height, width, chan):
-    """ """
     resized_imgs = []
 
     for vid in imgs[:num_videos]:
@@ -223,7 +216,6 @@ def quantitative_result(
     width,
     chan,
 ):
-    """ """
     imgs = load_generated_imgs(generated_img_path)
     resized_imgs = fvd_resize(imgs, num_videos, height, width, chan)
 
@@ -239,16 +231,8 @@ def quantitative_result(
 def save_generated_images(experiment, generated_img_path, n=1):
     for i in range(n):
         fake_data = experiment.get_fake_data(
-            rnn_type=experiment.config.experiment.architecture,
-            batch_size=experiment.config.experiment.batch_size,
-            d_C=experiment.d_C,
-            d_E=experiment.d_E,
-            d_L=experiment.d_L,
-            d_P=experiment.d_P,
-            d_N=experiment.d_N,
-            device=experiment.device,
             nz=experiment.nz,
-            nc=experiment.nc,
+            nc=experiment.ndim_channel,
             img_size=experiment.img_size,
             dataset=experiment.dataloader.dataset,
             video_lengths=[50],
@@ -277,13 +261,6 @@ def compute_ckpt_fvd(
         )
 
     return fvd
-
-
-def select_ckpts(saved_epochs, num_elements=10):
-    sorted_saved_epochs = sorted(saved_epochs)
-    idx = np.linspace(0, len(sorted_saved_epochs) - 1, num_elements, dtype="int")
-    sorted_saved_epochs = np.asarray(sorted_saved_epochs)[idx]
-    return sorted_saved_epochs
 
 
 def main(*args):
@@ -321,9 +298,7 @@ def main(*args):
     # -------------------------------
     # 3 Show Configuration Space
     # -------------------------------
-    config_space_img_save_path = "config_space.svg"
-
-    qualitative_results_latent(experiment, 2, 1024, config_space_img_save_path)
+    qualitative_results_latent(experiment, 2, 1024, "out/config_space.svg")
 
 
 if __name__ == "__main__":

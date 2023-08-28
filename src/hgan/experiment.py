@@ -37,6 +37,11 @@ class Experiment:
         self._init_models(self.config)
 
     def _init_derived_attributes(self, config):
+
+        # Make all keys available in config.experiment as attributes in this object, for convenience
+        for k, v in config.experiment.items():
+            setattr(self, k, v)
+
         # Only 1 GPU supported for now
         self.ngpu = 1
 
@@ -55,31 +60,17 @@ class Experiment:
         self.criterion = torch.nn.BCELoss().to(self.device)
         self.label = torch.FloatTensor().to(self.device)
 
-        self.img_size = config.arch.img_size
-        self.nc = config.arch.nc
-        self.ndf = config.arch.ndf
-        self.ngf = config.arch.ngf
-
-        self.hidden_size = config.arch.hidden_size
-
-        self.d_E = config.arch.de
-        self.d_C = config.arch.dc
-        # Dimension of motion vector (since (p, q) vectors are concatenated, same as d_E)
-        self.d_M = self.d_E
-        self.d_L = config.arch.dl
-        self.d_P = config.arch.dp
-
-        self.lr = config.experiment.learning_rate
+        self.ndim_p = self.ndim_q = int(self.ndim_epsilon / 2)
         self.betas = tuple(float(b) for b in config.experiment.betas.split(","))
 
-        self.q_size = int(self.d_M / 2)
-        self.d_N = int(self.q_size**2)
+        self.ndim_q2 = int(self.ndim_q**2)
 
-        self.nz = (
-            self.q_size + int((self.d_N + self.q_size) / 2) + self.d_C
-            if config.experiment.architecture == "hnn_mass"
-            else self.d_C + self.d_M
-        )
+        if config.experiment.architecture == "hnn_mass":
+            self.nz = (
+                self.ndim_q + int((self.ndim_q2 + self.ndim_q) / 2) + self.ndim_content
+            )
+        else:
+            self.nz = self.ndim_content + self.ndim_epsilon
 
     def _init_dataloader(self, config):
         if config.experiment.hamiltonian_physics_rt:
@@ -90,7 +81,7 @@ class Experiment:
             )
         else:
             dataset = ToyPhysicsDatasetNPZ(
-                self.datapath, num_frames=config.video.frames
+                config=config, datapath=self.datapath, num_frames=config.video.frames
             )
 
         if len(dataset) == 0:
@@ -104,13 +95,18 @@ class Experiment:
         )
 
     def _init_models(self, config):
-        self.Di = Discriminator_I(self.nc, self.ndf, ngpu=self.ngpu).to(self.device)
-        self.Dv = Discriminator_V(
-            self.nc, self.ndf, T=config.video.frames, ngpu=self.ngpu
+        self.Di = Discriminator_I(
+            self.ndim_channel, self.ndim_discriminator_filter, ngpu=self.ngpu
         ).to(self.device)
-        self.Gi = Generator_I(self.nc, self.ngf, self.nz, ngpu=self.ngpu).to(
-            self.device
-        )
+        self.Dv = Discriminator_V(
+            self.ndim_channel,
+            self.ndim_discriminator_filter,
+            T=config.video.frames,
+            ngpu=self.ngpu,
+        ).to(self.device)
+        self.Gi = Generator_I(
+            self.ndim_channel, self.ndim_generator_filter, self.nz, ngpu=self.ngpu
+        ).to(self.device)
 
         rnn_class = {
             "gru": GRU,
@@ -122,28 +118,30 @@ class Experiment:
         if config.experiment.architecture in ("hnn_phase_space", "hnn_mass"):
             self.rnn = rnn_class(
                 device=self.device,
-                input_size=self.d_E + self.d_L + self.d_P,
+                input_size=self.ndim_epsilon + self.ndim_label + self.ndim_physics,
                 hidden_size=self.hidden_size,
-                output_size=self.d_E,
+                output_size=self.ndim_epsilon,
             ).to(self.device)
         else:
             self.rnn = rnn_class(
-                device=self.device, input_size=self.d_E, hidden_size=self.hidden_size
+                device=self.device,
+                input_size=self.ndim_epsilon,
+                hidden_size=self.hidden_size,
             ).to(self.device)
 
         self.rnn.initWeight()
 
         self.optim_Di = torch.optim.Adam(
-            self.Di.parameters(), lr=self.lr, betas=self.betas
+            self.Di.parameters(), lr=self.learning_rate, betas=self.betas
         )
         self.optim_Dv = torch.optim.Adam(
-            self.Dv.parameters(), lr=self.lr, betas=self.betas
+            self.Dv.parameters(), lr=self.learning_rate, betas=self.betas
         )
         self.optim_Gi = torch.optim.Adam(
-            self.Gi.parameters(), lr=self.lr, betas=self.betas
+            self.Gi.parameters(), lr=self.learning_rate, betas=self.betas
         )
         self.optim_rnn = torch.optim.Adam(
-            self.rnn.parameters(), lr=self.lr, betas=self.betas
+            self.rnn.parameters(), lr=self.learning_rate, betas=self.betas
         )
 
     def saved_epochs(self):
@@ -202,7 +200,7 @@ class Experiment:
         z_M, dz_M = rnn(eps, n_frames)
         z_M = z_M.transpose(1, 0)
         dz_M = dz_M.transpose(1, 0)
-        if self.config.experiment.hamiltonian_physics_rt:
+        if self.hamiltonian_physics_rt:
             fake_labels = dataset.get_fake_labels(batch_size)
         else:
             fake_labels = Variable(torch.LongTensor(np.zeros((batch_size,))))
@@ -314,14 +312,6 @@ class Experiment:
 
     def get_fake_data(
         self,
-        rnn_type,
-        batch_size,
-        d_C,
-        d_E,
-        d_L,
-        d_P,
-        d_N,
-        device,
         nz,
         nc,
         img_size,
@@ -336,14 +326,14 @@ class Experiment:
 
         # Z.size() => (batch_size, n_frames, nz, 1, 1)
         Z, dz, labels, props = self.get_latent_sample(
-            rnn_type=rnn_type,
-            batch_size=batch_size,
-            d_C=d_C,
-            d_E=d_E,
-            d_L=d_L,
-            d_P=d_P,
-            d_N=d_N,
-            device=device,
+            rnn_type=self.architecture,
+            batch_size=self.batch_size,
+            d_C=self.ndim_content,
+            d_E=self.ndim_epsilon,
+            d_L=self.ndim_label,
+            d_P=self.ndim_physics,
+            d_N=self.ndim_q2,
+            device=self.device,
             nz=nz,
             dataset=dataset,
             rnn=self.rnn,
@@ -351,11 +341,11 @@ class Experiment:
         )
         # trim => (batch_size, T, nz, 1, 1)
         Z = trim_noise(Z, T=T)
-        Z_reshape = Z.contiguous().view(batch_size * T, nz, 1, 1)
+        Z_reshape = Z.contiguous().view(self.batch_size * T, nz, 1, 1)
 
         fake_videos = self.Gi(Z_reshape)
 
-        fake_videos = fake_videos.view(batch_size, T, nc, img_size, img_size)
+        fake_videos = fake_videos.view(self.batch_size, T, nc, img_size, img_size)
         # transpose => (batch_size, nc, T, img_size, img_size)
         fake_videos = fake_videos.transpose(2, 1)
         # img sampling
@@ -401,15 +391,6 @@ class Experiment:
         return real_data
 
     def train_step(self):
-        # TODO: Unnecessary packing!
-        models = {"Di": self.Di, "Dv": self.Dv, "Gi": self.Gi, "RNN": self.rnn}
-        optims = {
-            "Di": self.optim_Di,
-            "Dv": self.optim_Dv,
-            "Gi": self.optim_Gi,
-            "RNN": self.optim_rnn,
-        }
-
         dataset = self.dataloader.dataset
         video_lengths = self.dataloader.dataset.video_lengths
 
@@ -417,30 +398,28 @@ class Experiment:
             device=self.device, videos_dataloader=self.dataloader
         )
         fake_data = self.get_fake_data(
-            rnn_type=self.config.experiment.architecture,
-            batch_size=self.config.experiment.batch_size,
-            d_C=self.d_C,
-            d_E=self.d_E,
-            d_L=self.d_L,
-            d_P=self.d_P,
-            d_N=self.d_N,
-            device=self.device,
             nz=self.nz,
-            nc=self.nc,
+            nc=self.ndim_channel,
             img_size=self.img_size,
             dataset=dataset,
             video_lengths=video_lengths,
         )
 
         err, mean = update_models(
-            rnn_type=self.config.experiment.architecture,
+            rnn_type=self.architecture,
             label=self.label,
             criterion=self.criterion,
-            q_size=self.q_size,
-            batch_size=self.config.experiment.batch_size,
-            cyclic_coord_loss=self.config.experiment.cyclic_coord_loss,
-            models=models,
-            optims=optims,
+            q_size=self.ndim_q,
+            batch_size=self.batch_size,
+            cyclic_coord_loss=self.cyclic_coord_loss,
+            model_di=self.Di,
+            model_dv=self.Dv,
+            model_gi=self.Gi,
+            model_rnn=self.rnn,
+            optim_di=self.optim_Di,
+            optim_dv=self.optim_Dv,
+            optim_gi=self.optim_Gi,
+            optim_rnn=self.optim_rnn,
             real_data=real_data,
             fake_data=fake_data,
         )
@@ -449,25 +428,25 @@ class Experiment:
 
     def train(self):
         save_config(self.config.paths.output)
-        setup_reproducibility(seed=self.config.experiment.seed)
+        setup_reproducibility(seed=self.seed)
 
-        if self.config.experiment.retrain:
+        if self.retrain:
             start_epoch = 0
         else:
             start_epoch = self.load_epoch()
 
         start_time = time.time()
-        for epoch in range(start_epoch + 1, self.config.experiment.n_epoch + 1):
+        for epoch in range(start_epoch + 1, self.n_epoch + 1):
             err, mean, fake_videos = self.train_step()
 
-            last_epoch = epoch == self.config.experiment.n_epoch
+            last_epoch = epoch == self.n_epoch
 
-            if epoch % self.config.experiment.print_every == 0 or last_epoch:
+            if epoch % self.print_every == 0 or last_epoch:
                 print(
                     "[%d/%d] (%s) Loss_Di: %.4f Loss_Dv: %.4f Loss_Gi: %.4f Loss_Gv: %.4f Di_real_mean %.4f Di_fake_mean %.4f Dv_real_mean %.4f Dv_fake_mean %.4f"
                     % (
                         epoch,
-                        self.config.experiment.n_epoch,
+                        self.n_epoch,
                         timeSince(start_time),
                         err["Di"],
                         err["Dv"],
@@ -480,9 +459,9 @@ class Experiment:
                     )
                 )
 
-            if epoch % self.config.experiment.save_video_every == 0 or last_epoch:
+            if epoch % self.save_video_every == 0 or last_epoch:
                 video = fake_videos[0].data.cpu().numpy().transpose(1, 2, 3, 0)
                 self.save_video(self.config.paths.output, video, epoch)
 
-            if epoch % self.config.experiment.save_model_every == 0 or last_epoch:
+            if epoch % self.save_model_every == 0 or last_epoch:
                 self.save_epoch(epoch)

@@ -379,8 +379,10 @@ class HNNPhaseSpace(HNNSimple):
     def forward(self, TM_noise, n_frames):
         x = self.phase_space_map(TM_noise)
         labels = (
-            TM_noise[:, -(config.arch.dl + config.arch.dp) :]
-            if (config.arch.dl + config.arch.dp) > 0
+            TM_noise[
+                :, -(config.experiment.ndim_label + config.experiment.ndim_physics) :
+            ]
+            if (config.experiment.ndim_label + config.experiment.ndim_physics) > 0
             else None
         )
         outputs = [x]

@@ -119,22 +119,23 @@ def update_G(
     q_size,
     batch_size,
     cyclic_coord_loss,
-    models,
+    model_di,
+    model_dv,
+    model_gi,
+    model_rnn,
     fake_data,
     optim_Gi,
     optim_RNN
 ):
-    dis_i, dis_v, gen_i, rnn = models["Di"], models["Dv"], models["Gi"], models["RNN"]
-
-    gen_i.zero_grad()
-    rnn.zero_grad()
+    model_gi.zero_grad()
+    model_rnn.zero_grad()
 
     # video. notice retain=True for back prop twice
     # retain=True for back prop three times
     err_Gv, _ = bp_v(
         label=label,
         criterion=criterion,
-        dis_v=dis_v,
+        dis_v=model_dv,
         inputs=fake_data["videos"],
         y=0.9,
         retain=True,
@@ -145,7 +146,7 @@ def update_G(
         err_Gi, _ = bp_i(
             label=label,
             criterion=criterion,
-            dis_i=dis_i,
+            dis_i=model_di,
             inputs=fake_data["img"],
             y=0.9,
             retain=True,
@@ -154,7 +155,7 @@ def update_G(
         err_Gi, _ = bp_i(
             label=label,
             criterion=criterion,
-            dis_i=dis_i,
+            dis_i=model_di,
             inputs=fake_data["img"],
             y=0.9,
             retain=False,
@@ -183,51 +184,34 @@ def update_models(
     q_size,
     batch_size,
     cyclic_coord_loss,
-    models,
-    optims,
+    model_di,
+    model_dv,
+    model_gi,
+    model_rnn,
+    optim_di,
+    optim_dv,
+    optim_gi,
+    optim_rnn,
     real_data,
     fake_data
 ):
-    """
-    updates models: image generator, image discriminator, video discriminator, motion rnn module
-
-    Parameters:
-    ----------
-        models (nn.Module): discriminators (image and video), generators (image and video), rnn
-        optims (torch.optim): optimizers for models
-        real_data (torch.Tensor): from the dataset
-        fake_data (torch.Tensor): from the generator
-
-    Returns:
-    -------
-        (err, mean): model error and mean accuracy(?)
-    """
-
-    dis_i, dis_v, _, _ = models["Di"], models["Dv"], models["Gi"], models["RNN"]
-    optim_Di, optim_Dv, optim_Gi, optim_RNN = (
-        optims["Di"],
-        optims["Dv"],
-        optims["Gi"],
-        optims["RNN"],
-    )
-
     err_Dv, mean_Dv = update_Dv(
         rnn_type=rnn_type,
         label=label,
         criterion=criterion,
-        dis_v=dis_v,
+        dis_v=model_dv,
         real_data=real_data,
         fake_data=fake_data,
-        optim_Dv=optim_Dv,
+        optim_Dv=optim_dv,
     )
     err_Di, mean_Di = update_Di(
         rnn_type=rnn_type,
         label=label,
         criterion=criterion,
-        dis_i=dis_i,
+        dis_i=model_di,
         real_data=real_data,
         fake_data=fake_data,
-        optim_Di=optim_Di,
+        optim_Di=optim_di,
     )
     err_G = update_G(
         rnn_type=rnn_type,
@@ -236,10 +220,13 @@ def update_models(
         q_size=q_size,
         batch_size=batch_size,
         cyclic_coord_loss=cyclic_coord_loss,
-        models=models,
+        model_di=model_di,
+        model_dv=model_dv,
+        model_gi=model_gi,
+        model_rnn=model_rnn,
         fake_data=fake_data,
-        optim_Gi=optim_Gi,
-        optim_RNN=optim_RNN,
+        optim_Gi=optim_gi,
+        optim_RNN=optim_rnn,
     )
 
     err = {**err_Dv, **err_Di, **err_G}

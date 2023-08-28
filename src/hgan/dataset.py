@@ -103,7 +103,10 @@ class ToyPhysicsDataset(Dataset):
         vid = (
             np.asarray(
                 [
-                    resize(img, (config.arch.img_size, config.arch.img_size, nc))
+                    resize(
+                        img,
+                        (config.experiment.img_size, config.experiment.img_size, nc),
+                    )
                     for img in vid
                 ]
             )
@@ -121,7 +124,8 @@ class ToyPhysicsDataset(Dataset):
 
 
 class ToyPhysicsDatasetNPZ(Dataset):
-    def __init__(self, datapath, num_frames, delta=1, train=True):
+    def __init__(self, config, datapath, num_frames, delta=1, train=True):
+        self.config = config
         train_test = "train" if train else "test"
         self.num_frames = num_frames
         self.delta = delta
@@ -176,10 +180,13 @@ class ToyPhysicsDatasetNPZ(Dataset):
         end = start + self.num_frames
         vid = vid[start:end]
 
-        if img_size != config.arch.img_size:
+        if img_size != config.experiment.img_size:
             vid = np.asarray(
                 [
-                    resize(img, (config.arch.img_size, config.arch.img_size, nc))
+                    resize(
+                        img,
+                        (config.experiment.img_size, config.experiment.img_size, nc),
+                    )
                     for img in vid
                 ]
             )
@@ -237,7 +244,7 @@ class RealtimeDataset(Dataset):
 
             # Tweak the physics parameters to our liking
             # TODO: Is this okay to do for speedup? Will this modify the characteristics of the experiment drastically?
-            config_dict["image_resolution"] = self.config.arch.img_size
+            config_dict["image_resolution"] = self.config.experiment.img_size
             _physics_key = (
                 system_name.replace("COLORS", "").replace("FRICTION", "").rstrip("_")
             )
@@ -264,7 +271,7 @@ class RealtimeDataset(Dataset):
         return 50_000 if self.train else 10_000  # Blanchette 2021
 
     def _physics_vector_from_data(self, data):
-        props = np.zeros((self.config.arch.dp,))
+        props = np.zeros((self.config.experiment.ndim_physics,))
 
         i = 0
         # note: dicts are ordered in py >= 3.7 so we have a deterministic order
@@ -302,11 +309,16 @@ class RealtimeDataset(Dataset):
         end = start + self.num_frames
         vid = vid[start:end]
 
-        if img_size != self.config.arch.img_size:
+        if img_size != self.config.experiment.img_size:
             vid = np.asarray(
                 [
                     resize(
-                        img, (self.config.arch.img_size, self.config.arch.img_size, nc)
+                        img,
+                        (
+                            self.config.experiment.img_size,
+                            self.config.experiment.img_size,
+                            nc,
+                        ),
                     )
                     for img in vid
                 ]
