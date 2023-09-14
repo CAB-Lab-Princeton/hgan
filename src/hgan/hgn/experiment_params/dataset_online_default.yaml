@@ -1,0 +1,20 @@
+# Define environment
+environment:
+  # The following parameters must correspond in name and type
+  # to the environment __init__() arguments
+  name: "Spring"
+  mass: 0.5
+  elastic_cst: 2.0
+
+# Define data characteristics
+dataset:
+  img_size: 32  # resolution used in Botev
+  radius_bound: 'auto'
+  num_train_samples: 50000 # Total number of rollouts used when training on-line. 50K in Blanchette 2021
+  num_test_samples: 20000  # Number of test samples.
+  rollout:
+    seq_length: 512  # no. of frames mentioned in Blanchette 2021
+    delta_time: 0.05  # from Blanchette 2021
+    n_channels: 3
+    noise_level: 0.1  # Level of environment noise. 0 means no noise, 1 means max noise.
+                      # Maximum values are defined in each environment.

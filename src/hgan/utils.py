@@ -25,14 +25,6 @@ def timeSince(since):
     return "%dd %dh %dm %ds" % (d, h, m, s)
 
 
-# for input noises to generate fake video
-# note that noises are trimmed randomly from n_frames to T for efficiency
-def trim_noise(noise, T):
-    start = np.random.randint(0, noise.size(1) - T + 1)
-    end = start + T
-    return noise[:, start:end, :, :, :]
-
-
 def choose_nonlinearity(name):
     return {
         "tanh": torch.nn.Tanh(),

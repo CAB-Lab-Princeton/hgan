@@ -271,7 +271,11 @@ class RealtimeDataset(Dataset):
         return 50_000 if self.train else 10_000  # Blanchette 2021
 
     def _physics_vector_from_data(self, data):
-        props = np.zeros((self.config.experiment.ndim_physics,))
+        ndim_physics = self.config.experiment.ndim_physics
+        if ndim_physics <= 0:
+            return 0
+
+        props = np.zeros((ndim_physics,))
 
         i = 0
         # note: dicts are ordered in py >= 3.7 so we have a deterministic order

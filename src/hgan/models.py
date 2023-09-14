@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.init as init
 from torch.autograd import Variable, grad
 from hgan.utils import choose_nonlinearity
-from hgan.configuration import config
 
 
 # see: _netD in https://github.com/pytorch/examples/blob/master/dcgan/main.py
@@ -279,7 +278,9 @@ class HNNSimple(nn.Module):
         1 * MLP
     """
 
-    def __init__(self, *, device, input_size, hidden_size, dt=0.05):
+    def __init__(
+        self, *, device, input_size, hidden_size, dt=0.05, ndim_physics=0, ndim_label=0
+    ):
         """
         Parameters:
         ----------
@@ -291,6 +292,8 @@ class HNNSimple(nn.Module):
 
         self.device = device
         self.dt = dt
+        self.ndim_physics = ndim_physics
+        self.ndim_label = ndim_label
         self.hnn = MLP(input_size, hidden_size, 1, nonlinearity="relu").to(device)
 
     def forward(self, x, n_frames):
@@ -360,7 +363,17 @@ class HNNPhaseSpace(HNNSimple):
         2 * MLP
     """
 
-    def __init__(self, *, device, input_size, hidden_size, output_size, dt=0.05):
+    def __init__(
+        self,
+        *,
+        device,
+        input_size,
+        hidden_size,
+        output_size,
+        dt=0.05,
+        ndim_physics=0,
+        ndim_label=0
+    ):
         """
         Parameters:
         ----------
@@ -370,7 +383,12 @@ class HNNPhaseSpace(HNNSimple):
             dt (float): timestep in integration
         """
         super(HNNPhaseSpace, self).__init__(
-            device=device, input_size=input_size, hidden_size=hidden_size, dt=dt
+            device=device,
+            input_size=input_size,
+            hidden_size=hidden_size,
+            dt=dt,
+            ndim_physics=ndim_physics,
+            ndim_label=ndim_label,
         )
         # Note: in Keras implementation the authors use a lrelu for the W map
         # https://keras.io/examples/generative/stylegan/
@@ -379,10 +397,8 @@ class HNNPhaseSpace(HNNSimple):
     def forward(self, TM_noise, n_frames):
         x = self.phase_space_map(TM_noise)
         labels = (
-            TM_noise[
-                :, -(config.experiment.ndim_label + config.experiment.ndim_physics) :
-            ]
-            if (config.experiment.ndim_label + config.experiment.ndim_physics) > 0
+            TM_noise[:, -(self.ndim_label + self.ndim_physics) :]
+            if (self.ndim_label + self.ndim_physics) > 0
             else None
         )
         outputs = [x]

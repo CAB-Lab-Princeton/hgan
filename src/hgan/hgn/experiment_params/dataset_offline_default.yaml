@@ -1,0 +1,4 @@
+# Define data paths
+dataset:
+  train_data: "/media/vineetb/T7/cablanc/Hamiltonian-Generative-Networks/tmp/spring/train"  # Should be of 50k samples
+  test_data: "/media/vineetb/T7/cablanc/Hamiltonian-Generative-Networks/tmp/spring/test"  # Should be of 10k samples

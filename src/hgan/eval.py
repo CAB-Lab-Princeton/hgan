@@ -3,6 +3,7 @@ import sys
 import tempfile
 import argparse
 from glob import glob
+import importlib
 import matplotlib.pylab as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 import numpy as np
@@ -11,6 +12,7 @@ from skimage.transform import resize
 import scipy
 import torch
 
+import hgan.data
 from hgan.configuration import load_config
 from hgan.experiment import Experiment
 
@@ -54,9 +56,8 @@ def compute_our_fvd(
         rescale=False, resize=False, return_features=True
     )  # Return raw features before the softmax layer.
 
-    # TODO: Use importlib-resources
-    with open("data/i3d_torchscript.pt", "rb") as f:
-        detector = torch.jit.load(f).eval().to(device)
+    with importlib.resources.path(hgan.data, "i3d_torchscript.pt") as i3d_path:
+        detector = torch.jit.load(i3d_path).eval().to(device)
 
     videos_fake = torch.from_numpy(videos_fake).permute(0, 4, 1, 2, 3).to(device)
     videos_real = torch.from_numpy(videos_real).permute(0, 4, 1, 2, 3).to(device)
@@ -111,14 +112,13 @@ def qualitative_results_img(
     experiment, n_frames, short_video_save_path, long_video_save_path
 ):
     fake_data = experiment.get_fake_data(
-        nz=experiment.nz,
-        nc=experiment.ndim_channel,
-        img_size=experiment.img_size,
-        dataset=experiment.dataloader.dataset,
         video_lengths=[n_frames],
     )
 
-    fake_data_np = fake_data["videos"].permute(0, 2, 3, 4, 1) / 2 + 0.5
+    # (batch_size, nc, T, img_size, img_size) => (batch_size, T, img_size, img_size, nc)
+    fake_data_np = fake_data["videos"].permute(0, 2, 3, 4, 1)
+    # Normalize from [-1, 1] to [0, 1]
+    fake_data_np = fake_data_np / 2 + 0.5
     fake_data_np = fake_data_np.detach().cpu().numpy().squeeze()
 
     viz_short_trajectory(
@@ -134,17 +134,7 @@ def qualitative_results_latent(experiment, n_frames, batch_size, save_path):
     # X_transformed = embedding.fit_transform(X, init="pca")
 
     Z, _, _, _ = experiment.get_latent_sample(
-        rnn_type=experiment.config.experiment.architecture,
         batch_size=batch_size,
-        d_C=experiment.ndim_content,
-        d_E=experiment.ndim_epsilon,
-        d_L=experiment.ndim_label,
-        d_P=experiment.ndim_physics,
-        d_N=experiment.ndim_q2,
-        device=experiment.device,
-        nz=experiment.nz,
-        dataset=experiment.dataloader.dataset,
-        rnn=experiment.rnn,
         n_frames=n_frames,
     )
 
@@ -181,6 +171,7 @@ def load_generated_imgs(generated_img_path):
 
     imgs = np.array(imgs_list)[:, :, :16, :, :]
     imgs = imgs.reshape(num_files * b, s, c, h, w)
+    # (batch_size, T, img_size, img_size, nc)
     imgs = imgs.transpose(0, 1, 3, 4, 2)
 
     return imgs
@@ -228,30 +219,14 @@ def quantitative_result(
     return our_fvd_result
 
 
-def save_generated_images(experiment, generated_img_path, n=1):
-    for i in range(n):
-        fake_data = experiment.get_fake_data(
-            nz=experiment.nz,
-            nc=experiment.ndim_channel,
-            img_size=experiment.img_size,
-            dataset=experiment.dataloader.dataset,
-            video_lengths=[50],
-        )
-        fake_data_np = fake_data["videos"].permute(0, 2, 1, 3, 4).detach().cpu().numpy()
-        filename = generated_img_path + str(i).zfill(4)
-        np.save(filename, fake_data_np)
-
-
-def compute_ckpt_fvd(
-    experiment, videos_dataloader, fvd_batch_size, num_videos, height, width, chan, n=1
-):
+def compute_ckpt_fvd(experiment, fvd_batch_size, num_videos, height, width, chan, n=1):
     """ """
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdirname = tmpdirname + "/"
-        save_generated_images(experiment, tmpdirname, n=n)
+        experiment.save_fake_images(tmpdirname, n=n)
 
         fvd = quantitative_result(
-            videos_dataloader,
+            experiment.dataloader,
             tmpdirname,
             fvd_batch_size,
             num_videos,
@@ -286,7 +261,6 @@ def main(*args):
         experiment.load_epoch(epoch)
         fvd = compute_ckpt_fvd(
             experiment=experiment,
-            videos_dataloader=experiment.dataloader,
             fvd_batch_size=int(2048 / 16),
             num_videos=16,
             height=224,

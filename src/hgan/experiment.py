@@ -10,7 +10,7 @@ from torch.autograd import Variable
 from hgan.configuration import save_config
 from hgan.models import GRU, HNNSimple, HNNPhaseSpace, HNNMass
 from hgan.dataset import RealtimeDataset, ToyPhysicsDatasetNPZ
-from hgan.utils import setup_reproducibility, timeSince, trim_noise
+from hgan.utils import setup_reproducibility, timeSince
 from hgan.models import Discriminator_I, Discriminator_V, Generator_I
 from hgan.updates import update_models
 
@@ -121,6 +121,8 @@ class Experiment:
                 input_size=self.ndim_epsilon + self.ndim_label + self.ndim_physics,
                 hidden_size=self.hidden_size,
                 output_size=self.ndim_epsilon,
+                ndim_physics=self.ndim_physics,
+                ndim_label=self.ndim_label,
             ).to(self.device)
         else:
             self.rnn = rnn_class(
@@ -267,89 +269,78 @@ class Experiment:
 
     def get_latent_sample(
         self,
-        rnn_type,
         batch_size,
-        d_C,
-        d_E,
-        d_L,
-        d_P,
-        d_N,
-        device,
-        nz,
-        dataset,
-        rnn,
         n_frames,
     ):
         # TODO: Do this through inheritance
-        if rnn_type in ("gru", "hnn_simple"):
+        if self.architecture in ("gru", "hnn_simple"):
             return self.get_simple_sample(
-                batch_size, d_C, d_E, nz, device, rnn, n_frames
+                batch_size,
+                self.ndim_content,
+                self.ndim_epsilon,
+                self.nz,
+                self.device,
+                self.rnn,
+                n_frames,
             )
-        elif rnn_type in ["hnn_phase_space"]:
+        elif self.architecture in ("hnn_phase_space",):
             return self.get_phase_space_sample(
                 batch_size=batch_size,
-                d_C=d_C,
-                d_E=d_E,
-                d_L=d_L,
-                d_P=d_P,
-                device=device,
-                nz=nz,
-                dataset=dataset,
-                rnn=rnn,
+                d_C=self.ndim_content,
+                d_E=self.ndim_epsilon,
+                d_L=self.ndim_label,
+                d_P=self.ndim_physics,
+                device=self.device,
+                nz=self.nz,
+                dataset=self.dataloader.dataset,
+                rnn=self.rnn,
                 n_frames=n_frames,
             )
         else:
             return self.get_mass_sample(
                 batch_size=batch_size,
-                d_C=d_C,
-                d_E=d_E,
-                d_N=d_N,
-                device=device,
-                nz=nz,
-                rnn=rnn,
+                d_C=self.ndim_content,
+                d_E=self.ndim_epsilon,
+                d_N=self.ndim_q2,
+                device=self.device,
+                nz=self.nz,
+                rnn=self.rnn,
                 n_frames=n_frames,
             )
 
+    def trim_video(self, video, n_frame):
+        # Trim a (batch_size, T, ...) video to (batch_size, n_frame, ...)
+        start = np.random.randint(0, video.size(1) - n_frame + 1)
+        end = start + n_frame
+        return video[:, start:end, ...]
+
     def get_fake_data(
         self,
-        nz,
-        nc,
-        img_size,
-        dataset,
         video_lengths,
     ):
-        T = self.config.video.frames
-
         n_videos = len(video_lengths)
         idx = np.random.randint(0, n_videos)
         n_frames = video_lengths[idx]
 
         # Z.size() => (batch_size, n_frames, nz, 1, 1)
         Z, dz, labels, props = self.get_latent_sample(
-            rnn_type=self.architecture,
             batch_size=self.batch_size,
-            d_C=self.ndim_content,
-            d_E=self.ndim_epsilon,
-            d_L=self.ndim_label,
-            d_P=self.ndim_physics,
-            d_N=self.ndim_q2,
-            device=self.device,
-            nz=nz,
-            dataset=dataset,
-            rnn=self.rnn,
             n_frames=n_frames,
         )
+        n_frame = self.config.video.frames
         # trim => (batch_size, T, nz, 1, 1)
-        Z = trim_noise(Z, T=T)
-        Z_reshape = Z.contiguous().view(self.batch_size * T, nz, 1, 1)
+        Z = self.trim_video(video=Z, n_frame=n_frame)
+        Z_reshape = Z.contiguous().view(self.batch_size * n_frame, self.nz, 1, 1)
 
         fake_videos = self.Gi(Z_reshape)
 
-        fake_videos = fake_videos.view(self.batch_size, T, nc, img_size, img_size)
+        fake_videos = fake_videos.view(
+            self.batch_size, n_frame, self.ndim_channel, self.img_size, self.img_size
+        )
         # transpose => (batch_size, nc, T, img_size, img_size)
         fake_videos = fake_videos.transpose(2, 1)
         # img sampling
-        fake_img = fake_videos[:, :, np.random.randint(0, T), :, :]
+        fake_img = fake_videos[:, :, np.random.randint(0, n_frame), :, :]
 
         fake_data = {
             "videos": fake_videos,
@@ -361,6 +352,18 @@ class Experiment:
         }
 
         return fake_data
+
+    def save_fake_images(self, generated_img_path, n=1, video_length=50):
+        for i in range(n):
+            fake_data = self.get_fake_data(
+                video_lengths=[video_length],
+            )
+            # (batch_size, T, nc, img_size, img_size)
+            fake_data_np = (
+                fake_data["videos"].permute(0, 2, 1, 3, 4).detach().cpu().numpy()
+            )
+            filename = generated_img_path + str(i).zfill(4)
+            np.save(filename, fake_data_np)
 
     def get_real_data(self, device, videos_dataloader):
         real_system = real_props = None
@@ -391,17 +394,12 @@ class Experiment:
         return real_data
 
     def train_step(self):
-        dataset = self.dataloader.dataset
         video_lengths = self.dataloader.dataset.video_lengths
 
         real_data = self.get_real_data(
             device=self.device, videos_dataloader=self.dataloader
         )
         fake_data = self.get_fake_data(
-            nz=self.nz,
-            nc=self.ndim_channel,
-            img_size=self.img_size,
-            dataset=dataset,
             video_lengths=video_lengths,
         )
 

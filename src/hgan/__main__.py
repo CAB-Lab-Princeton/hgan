@@ -8,9 +8,17 @@ import hgan
 
 from hgan.demo import main as demo
 from hgan.run import main as run
+from hgan.eval import main as eval
+from hgan.hgn.train import main as hgn
 from hgan.configuration import show_config
 
-commands = {"demo": demo, "run": run, "show-config": show_config}
+commands = {
+    "demo": demo,
+    "run": run,
+    "eval": eval,
+    "show-config": show_config,
+    "hgn": hgn,
+}
 
 
 def print_usage():
