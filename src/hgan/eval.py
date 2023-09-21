@@ -1,20 +1,16 @@
 import os
 import sys
-import tempfile
 import argparse
-from glob import glob
-import importlib
+import logging
 import matplotlib.pylab as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 import numpy as np
 from sklearn.manifold import TSNE
-from skimage.transform import resize
-import scipy
-import torch
-
-import hgan.data
 from hgan.configuration import load_config
 from hgan.experiment import Experiment
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_parser():
@@ -25,254 +21,146 @@ def get_parser():
         required=True,
         help="Path to configuration.ini specifying experiment parameters",
     )
+    parser.add_argument(
+        "--output-folder",
+        type=str,
+        required=True,
+        help="Output folder where results will be generated",
+    )
+    parser.add_argument(
+        "--every-nth",
+        type=int,
+        default=1,
+        help="Process every nth epoch checkpoint encountered (default 1)",
+    )
+    parser.add_argument(
+        "--generated-videos-timeslots",
+        type=int,
+        default=8,
+        help="Number of timeslots to include in generated videos pngs (default 8)",
+    )
+    parser.add_argument(
+        "--generated-videos-samples",
+        type=int,
+        default=3,
+        help="Number of samples to include in generated videos pngs (default 3)",
+    )
+    parser.add_argument(
+        "--latent-batch-size",
+        type=int,
+        default=1024,
+        help="Number of latent samples to generate for TSNE embedding (default 1024)",
+    )
+    parser.add_argument(
+        "--calculate-fvd",
+        dest="calculate_fvd",
+        action="store_true",
+        default=False,
+        help="Calculate fvd score for every processed epoch (expensive operation!)",
+    )
     return parser
 
 
-def compute_fvd(feats_fake: np.ndarray, feats_real: np.ndarray):
-    mu_gen, sigma_gen = compute_stats(feats_fake)
-    mu_real, sigma_real = compute_stats(feats_real)
-
-    m = np.square(mu_gen - mu_real).sum()
-    s, _ = scipy.linalg.sqrtm(
-        np.dot(sigma_gen, sigma_real), disp=False
-    )  # pylint: disable=no-member
-    fid = np.real(m + np.trace(sigma_gen + sigma_real - s * 2))
-
-    return float(fid)
-
-
-def compute_stats(feats: np.ndarray):
-    mu = feats.mean(axis=0)  # [d]
-    sigma = np.cov(feats, rowvar=False)  # [d, d]
-
-    return mu, sigma
-
-
-@torch.no_grad()
-def compute_our_fvd(
-    videos_fake: np.ndarray, videos_real: np.ndarray, device: str = "cpu"
-) -> float:
-    detector_kwargs = dict(
-        rescale=False, resize=False, return_features=True
-    )  # Return raw features before the softmax layer.
-
-    with importlib.resources.path(hgan.data, "i3d_torchscript.pt") as i3d_path:
-        detector = torch.jit.load(i3d_path).eval().to(device)
-
-    videos_fake = torch.from_numpy(videos_fake).permute(0, 4, 1, 2, 3).to(device)
-    videos_real = torch.from_numpy(videos_real).permute(0, 4, 1, 2, 3).to(device)
-
-    feats_fake = detector(videos_fake, **detector_kwargs).cpu().numpy()
-    feats_real = detector(videos_real, **detector_kwargs).cpu().numpy()
-
-    return compute_fvd(feats_fake, feats_real)
-
-
-def viz_short_trajectory(batch_size, fake_data_np, save_path):
-    fake_data_np = fake_data_np[:batch_size, :16, :, :, :].reshape(-1, 96, 96, 3)
-
-    fig = plt.figure(figsize=(20, 6))
-    grid = ImageGrid(
-        fig,
-        111,  # similar to subplot(111)
-        nrows_ncols=(5, 16),  # creates 2x2 grid of axes
-        axes_pad=0.1,  # pad between axes in inch.
-    )
-
-    for ax, im in zip(grid, fake_data_np):
-        # Iterating over the grid returns the Axes.
-        ax.imshow(im)
-        ax.axis("off")
-
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    plt.savefig(save_path)
-
-
-def viz_long_trajectory(fake_data_np, save_path):
-    fake_data_np = fake_data_np[0, :, :, :, :]
-
-    fig = plt.figure(figsize=(20, 6))
-    grid = ImageGrid(
-        fig,
-        111,  # similar to subplot(111)
-        nrows_ncols=(3, 16),  # creates 2x2 grid of axes
-        axes_pad=0.1,  # pad between axes in inch.
-    )
-
-    for ax, im in zip(grid, fake_data_np):
-        # Iterating over the grid returns the Axes.
-        ax.imshow(im)
-        ax.axis("off")
-
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    plt.savefig(save_path)
-
-
 def qualitative_results_img(
-    experiment, n_frames, short_video_save_path, long_video_save_path
+    experiment, png_path, fake=True, timeslots=8, samples=3, title=""
 ):
-    fake_data = experiment.get_fake_data(
-        video_lengths=[n_frames],
-    )
+    data = experiment.get_fake_data() if fake else experiment.get_real_data()
 
     # (batch_size, nc, T, img_size, img_size) => (batch_size, T, img_size, img_size, nc)
-    fake_data_np = fake_data["videos"].permute(0, 2, 3, 4, 1)
+    videos = data["videos"].permute(0, 2, 3, 4, 1)
     # Normalize from [-1, 1] to [0, 1]
-    fake_data_np = fake_data_np / 2 + 0.5
-    fake_data_np = fake_data_np.detach().cpu().numpy().squeeze()
+    videos = videos / 2 + 0.5
+    videos = videos.detach().cpu().numpy().squeeze()
 
-    viz_short_trajectory(
-        experiment.config.experiment.batch_size,
-        fake_data_np,
-        save_path=short_video_save_path,
+    videos = videos[:samples, :timeslots, :, :, :]
+    # Create a ndarray of video frames: timeslots, then samples_per_timeslot
+    videos = videos.reshape((-1, *videos.shape[2:]))
+
+    fig = plt.figure(figsize=(20, 6))
+    fig.suptitle(title)
+    # A grid in which each column represents a timeslot and each row a different instantiation of the
+    # video at that time slot
+    grid = ImageGrid(
+        fig,
+        111,
+        nrows_ncols=(samples, timeslots),
+        axes_pad=0.1,
     )
-    viz_long_trajectory(fake_data_np, save_path=long_video_save_path)
+
+    for ax, im in zip(grid, videos):
+        ax.axis("off")
+        ax.imshow(im)
+
+    os.makedirs(os.path.dirname(png_path), exist_ok=True)
+    plt.savefig(png_path)
 
 
-def qualitative_results_latent(experiment, n_frames, batch_size, save_path):
-    # embedding = pacmap.PaCMAP(n_components=2, n_neighbors=None, MN_ratio=0.5, FP_ratio=2.0)
-    # X_transformed = embedding.fit_transform(X, init="pca")
-
+def qualitative_results_latent(
+    experiment, batch_size, png_path, perplexity_values=(2, 5, 30, 50, 100), title=""
+):
     Z, _, _, _ = experiment.get_latent_sample(
         batch_size=batch_size,
-        n_frames=n_frames,
-    )
+        n_frames=1,
+    )  # shape (batch_size, n_frames, |ndim_q + ndim_p + ndim_content + ndim_label|, 1, 1)
 
     X = [
         Z[i, 0, : experiment.ndim_q].data.cpu().numpy().squeeze()
         for i in range(batch_size)
     ]
-    X = np.asarray(X).reshape(-1, experiment.ndim_q)
-
-    perplexity_values = (2, 5, 30, 50, 100)
-    tsnes = [
-        TSNE(n_components=2, perplexity=p, init="random").fit_transform(X)
-        for p in perplexity_values
-    ]
+    X = np.asarray(X).reshape(-1, experiment.ndim_q)  # shape (batch_size, ndim_q)
 
     fig, axs = plt.subplots(
-        ncols=len(tsnes), nrows=1, figsize=(20, 6), layout="constrained"
+        ncols=len(perplexity_values), nrows=1, figsize=(20, 6), layout="constrained"
     )
+    fig.suptitle(title)
 
-    for i, tsne in enumerate(tsnes):
+    for i, p in enumerate(perplexity_values):
+        tsne = TSNE(n_components=2, perplexity=p, init="random").fit_transform(X)
         axs[i].plot(tsne[:, 0], tsne[:, 1], ".")
+        axs[i].set_title(f"Perplexity {p}")
         axs[i].axis("off")
 
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    plt.savefig(save_path)
-
-
-def load_generated_imgs(generated_img_path):
-    img_files = glob(generated_img_path + "/*")
-    num_files = len(img_files)
-    imgs_list = [np.load(img_files[i]) for i in range(num_files)]
-
-    b, s, c, h, w = imgs_list[0].shape
-
-    imgs = np.array(imgs_list)[:, :, :16, :, :]
-    imgs = imgs.reshape(num_files * b, s, c, h, w)
-    # (batch_size, T, img_size, img_size, nc)
-    imgs = imgs.transpose(0, 1, 3, 4, 2)
-
-    return imgs
-
-
-def load_real_imgs(videos_dataloader, fvd_batch_size):
-    # TODO: Get fvd_batch_size no. of images
-    vd = iter(videos_dataloader)
-    data, _, _ = next(vd)
-    np_data = data.detach().cpu().numpy().transpose(0, 2, 3, 4, 1)
-
-    return np_data
-
-
-def fvd_resize(imgs, num_videos, height, width, chan):
-    resized_imgs = []
-
-    for vid in imgs[:num_videos]:
-        resized_video = np.asarray([resize(img, (height, width, chan)) for img in vid])
-        resized_imgs.append(resized_video)
-
-    resized_imgs = np.asarray(resized_imgs).astype(np.float32)
-
-    return resized_imgs
-
-
-def quantitative_result(
-    videos_dataloader,
-    generated_img_path,
-    fvd_batch_size,
-    num_videos,
-    height,
-    width,
-    chan,
-):
-    imgs = load_generated_imgs(generated_img_path)
-    resized_imgs = fvd_resize(imgs, num_videos, height, width, chan)
-
-    np_data = load_real_imgs(videos_dataloader, fvd_batch_size)
-    resized_np_data = fvd_resize(np_data, num_videos, height, width, chan)
-
-    # num_videos, video_len, height, width, chan
-    our_fvd_result = compute_our_fvd(resized_np_data, resized_imgs)
-
-    return our_fvd_result
-
-
-def compute_ckpt_fvd(experiment, fvd_batch_size, num_videos, height, width, chan, n=1):
-    """ """
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        tmpdirname = tmpdirname + "/"
-        experiment.save_fake_images(tmpdirname, n=n)
-
-        fvd = quantitative_result(
-            experiment.dataloader,
-            tmpdirname,
-            fvd_batch_size,
-            num_videos,
-            height,
-            width,
-            chan,
-        )
-
-    return fvd
+    os.makedirs(os.path.dirname(png_path), exist_ok=True)
+    plt.savefig(png_path)
 
 
 def main(*args):
     args = get_parser().parse_args(args)
     config = load_config(args.config_path)
 
+    output_folder = args.output_folder
+    config.save(output_folder)
+
     experiment = Experiment(config)
-    experiment.load_epoch()  # load latest epoch
 
-    # -------------------------------
-    # 1 Generate videos
-    # -------------------------------
-
-    qualitative_results_img(
-        experiment, 100, "out/short_videos_out.png", "out/long_videos_out.png"
-    )
-
-    # -------------------------------
-    # 2 Fréchet Video Distance to measure quality of generated videos
-    # -------------------------------
-
-    for epoch in experiment.saved_epochs():
+    saved_epochs = experiment.saved_epochs()
+    for epoch in saved_epochs[:: args.every_nth]:
+        logger.info(f"Processing epoch {epoch}")
         experiment.load_epoch(epoch)
-        fvd = compute_ckpt_fvd(
-            experiment=experiment,
-            fvd_batch_size=int(2048 / 16),
-            num_videos=16,
-            height=224,
-            width=224,
-            chan=3,
-        )
-        print(epoch, fvd)
 
-    # -------------------------------
-    # 3 Show Configuration Space
-    # -------------------------------
-    qualitative_results_latent(experiment, 2, 1024, "out/config_space.svg")
+        logger.info("  Generating videos image")
+        qualitative_results_img(
+            experiment,
+            f"{output_folder}/videos_{epoch:06d}.png",
+            timeslots=args.generated_videos_timeslots,
+            samples=args.generated_videos_samples,
+            title=f"Epoch {epoch}",
+        )
+
+        logger.info("  Generating Latent Features Image")
+        qualitative_results_latent(
+            experiment=experiment,
+            batch_size=args.latent_batch_size,
+            png_path=f"{output_folder}/config_{epoch:06d}.png",
+            title=f"Epoch {epoch}",
+        )
+
+        if args.calculate_fvd:
+            logger.info("  Calculating FVD Score")
+            fvd = experiment.fvd()
+            fvd_score_file = os.path.join(output_folder, "fvd_scores.txt")
+            with open(fvd_score_file, "a") as f:
+                f.write(f"Epoch {epoch}, fvd = {fvd}\n")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 import configparser
 
 
@@ -63,10 +64,12 @@ class Config(object):
     def __init__(self, name, filenames):
         self.name = name
         self.config = configparser.ConfigParser(inline_comment_prefixes="#")
+        self.file_paths = []
         self.init_from_files(filenames)
 
     def init_from_files(self, filenames):
-        self.config.read(filenames)
+        file_paths = self.config.read(filenames)
+        self.file_paths = file_paths
         self._read_sections()
 
     def read(self, filename):
@@ -79,6 +82,12 @@ class Config(object):
 
     def sections(self):
         return self.config.sections()
+
+    def save(self, folder):
+        os.makedirs(folder, exist_ok=True)
+        for file_path in self.file_paths:
+            dest = os.path.join(folder, os.path.basename(file_path))
+            shutil.copy(file_path, dest)
 
 
 def save_config(folder):

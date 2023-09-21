@@ -185,6 +185,16 @@ class Environment(ABC):
 
         return np.array(batch_sample)
 
+    def physical_properties(self, vec_length, dtype=np.float32):
+        if vec_length <= 0:
+            return 0
+        props = np.zeros(vec_length).astype(dtype)
+        for i, prop in enumerate(self.PHYSICAL_PROPERTIES):
+            if i == vec_length:
+                break
+            props[i] = getattr(self, prop)
+        return props
+
 
 def visualize_rollout(rollout, interval=50, show_step=False):
     """Visualization for a single sample rollout of a physical system.
@@ -213,6 +223,58 @@ def visualize_rollout(rollout, interval=50, show_step=False):
         else:
             res_img = im
         img.append([plt.imshow(res_img, animated=True)])
+    _ = animation.ArtistAnimation(
+        fig, img, interval=interval, blit=True, repeat_delay=100
+    )
+    plt.show()
+
+
+def visualize_rollouts(
+    rollouts, interval=50, show_step=False, show_rollout_number=True
+):
+    """Visualization for a single sample rollout of a physical system.
+
+    Args:
+        rollouts (numpy.ndarray): Numpy array containing the sequence of images. It's shape must be
+            (rollout_index, seq_len, height, width, channels).
+        interval (int): Delay between frames (in millisec).
+        show_step (bool): Whether to draw the step number in the image
+        show_rollout_number (bool): Whether to draw the rollout number between rollouts
+    """
+    fig = plt.figure()
+    img = []
+    for j, rollout in enumerate(rollouts):
+        for i, im in enumerate(rollout):
+            if show_step:
+                black_img = np.zeros(list(im.shape))
+                cv2.putText(
+                    black_img,
+                    str(i),
+                    (0, 30),
+                    fontScale=0.22,
+                    color=(255, 255, 255),
+                    thickness=1,
+                    fontFace=cv2.LINE_AA,
+                )
+                res_img = (im + black_img / 255.0) / 2
+            else:
+                res_img = im
+            img.append([plt.imshow(res_img, animated=True)])
+
+        if show_rollout_number:
+            for _ in range(1000 // interval):
+                black_img = np.zeros(list(im.shape))
+                cv2.putText(
+                    black_img,
+                    str(j + 1),
+                    (0, 30),
+                    fontScale=0.22,
+                    color=(255, 255, 255),
+                    thickness=1,
+                    fontFace=cv2.LINE_AA,
+                )
+                img.append([plt.imshow(black_img, animated=True)])
+
     _ = animation.ArtistAnimation(
         fig, img, interval=interval, blit=True, repeat_delay=100
     )

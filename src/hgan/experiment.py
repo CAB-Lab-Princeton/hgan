@@ -3,14 +3,18 @@ import time
 import glob
 import numpy as np
 import skvideo.io
+from skimage.transform import resize
+import importlib
 import torch
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
 
+import hgan.data
 from hgan.configuration import save_config
 from hgan.models import GRU, HNNSimple, HNNPhaseSpace, HNNMass
-from hgan.dataset import RealtimeDataset, ToyPhysicsDatasetNPZ
+from hgan.dataset import RealtimeDataset, HGNRealtimeDataset, ToyPhysicsDatasetNPZ
 from hgan.utils import setup_reproducibility, timeSince
+from hgan.fvd import compute_fvd
 from hgan.models import Discriminator_I, Discriminator_V, Generator_I
 from hgan.updates import update_models
 
@@ -73,15 +77,28 @@ class Experiment:
             self.nz = self.ndim_content + self.ndim_epsilon
 
     def _init_dataloader(self, config):
-        if config.experiment.hamiltonian_physics_rt:
+        if config.experiment.rt_data_generator == "hgn":
+            dataset = HGNRealtimeDataset(
+                ndim_physics=config.experiment.ndim_physics,
+                system_name=config.experiment.system_name,
+                num_frames=config.video.generator_frames,
+                delta=1,
+                train=True,
+                system_physics_constant=config.experiment.system_physics_constant,
+                system_color_constant=config.experiment.system_color_constant,
+                system_friction=config.experiment.system_friction,
+                total_frames=config.video.real_total_frames,
+                img_size=config.experiment.img_size,
+                normalize=config.video.normalize,
+            )
+        elif config.experiment.rt_data_generator == "dm":
             dataset = RealtimeDataset(
-                config=config,
                 system_name=config.experiment.system_name,
                 num_frames=config.video.frames,
             )
         else:
             dataset = ToyPhysicsDatasetNPZ(
-                config=config, datapath=self.datapath, num_frames=config.video.frames
+                datapath=self.datapath, num_frames=config.video.frames
             )
 
         if len(dataset) == 0:
@@ -101,8 +118,7 @@ class Experiment:
         self.Dv = Discriminator_V(
             self.ndim_channel,
             self.ndim_discriminator_filter,
-            T=config.video.frames,
-            ngpu=self.ngpu,
+            T=config.video.discriminator_frames,
         ).to(self.device)
         self.Gi = Generator_I(
             self.ndim_channel, self.ndim_generator_filter, self.nz, ngpu=self.ngpu
@@ -168,11 +184,11 @@ class Experiment:
 
         return epoch
 
-    def save_video(self, folder, video, epoch):
+    def save_video(self, folder, video, epoch, prefix="video_"):
         os.makedirs(folder, exist_ok=True)
         outputdata = video * 255
         outputdata = outputdata.astype(np.uint8)
-        file_path = os.path.join(folder, f"video_{epoch:0>6}.mp4")
+        file_path = os.path.join(folder, f"{prefix}{epoch:0>6}.mp4")
         skvideo.io.vwrite(file_path, outputdata, verbosity=0)
 
     def save_epoch(self, epoch):
@@ -201,8 +217,9 @@ class Experiment:
         # notice that 1st dim of gru outputs is seq_len, 2nd is batch_size
         z_M, dz_M = rnn(eps, n_frames)
         z_M = z_M.transpose(1, 0)
-        dz_M = dz_M.transpose(1, 0)
-        if self.hamiltonian_physics_rt:
+        if dz_M is not None:
+            dz_M = dz_M.transpose(1, 0)
+        if self.rt_data_generator is not None:
             fake_labels = dataset.get_fake_labels(batch_size)
         else:
             fake_labels = Variable(torch.LongTensor(np.zeros((batch_size,))))
@@ -314,33 +331,26 @@ class Experiment:
         end = start + n_frame
         return video[:, start:end, ...]
 
-    def get_fake_data(
-        self,
-        video_lengths,
-    ):
-        n_videos = len(video_lengths)
-        idx = np.random.randint(0, n_videos)
-        n_frames = video_lengths[idx]
-
+    def get_fake_data(self, n_frames=None):
+        n_frames = n_frames or self.config.video.generator_frames
         # Z.size() => (batch_size, n_frames, nz, 1, 1)
         Z, dz, labels, props = self.get_latent_sample(
             batch_size=self.batch_size,
             n_frames=n_frames,
         )
-        n_frame = self.config.video.frames
         # trim => (batch_size, T, nz, 1, 1)
-        Z = self.trim_video(video=Z, n_frame=n_frame)
-        Z_reshape = Z.contiguous().view(self.batch_size * n_frame, self.nz, 1, 1)
+        Z = self.trim_video(video=Z, n_frame=n_frames)
+        Z_reshape = Z.contiguous().view(self.batch_size * n_frames, self.nz, 1, 1)
 
         fake_videos = self.Gi(Z_reshape)
 
         fake_videos = fake_videos.view(
-            self.batch_size, n_frame, self.ndim_channel, self.img_size, self.img_size
+            self.batch_size, n_frames, self.ndim_channel, self.img_size, self.img_size
         )
         # transpose => (batch_size, nc, T, img_size, img_size)
         fake_videos = fake_videos.transpose(2, 1)
         # img sampling
-        fake_img = fake_videos[:, :, np.random.randint(0, n_frame), :, :]
+        fake_img = fake_videos[:, :, np.random.randint(0, n_frames), :, :]
 
         fake_data = {
             "videos": fake_videos,
@@ -355,9 +365,7 @@ class Experiment:
 
     def save_fake_images(self, generated_img_path, n=1, video_length=50):
         for i in range(n):
-            fake_data = self.get_fake_data(
-                video_lengths=[video_length],
-            )
+            fake_data = self.get_fake_data()
             # (batch_size, T, nc, img_size, img_size)
             fake_data_np = (
                 fake_data["videos"].permute(0, 2, 1, 3, 4).detach().cpu().numpy()
@@ -365,9 +373,11 @@ class Experiment:
             filename = generated_img_path + str(i).zfill(4)
             np.save(filename, fake_data_np)
 
-    def get_real_data(self, device, videos_dataloader):
+    def get_real_data(self, device=None, dataloader=None):
+        device = device or self.device
+        dataloader = dataloader or self.dataloader
         real_system = real_props = None
-        next_item = next(iter(videos_dataloader))
+        next_item = next(iter(dataloader))
         if isinstance(next_item, (tuple, list)):
             real_videos = next_item[0]
             if len(next_item) > 1:
@@ -377,7 +387,9 @@ class Experiment:
         else:
             real_videos = next_item
 
-        real_videos = real_videos.to(device)
+        real_videos = real_videos.to(
+            device
+        )  # (batch_size, ndim_channels, n_frames, img_size, img_size)
         real_videos = Variable(real_videos)
 
         real_videos_frames = real_videos.shape[2]
@@ -393,15 +405,65 @@ class Experiment:
 
         return real_data
 
-    def train_step(self):
-        video_lengths = self.dataloader.dataset.video_lengths
+    def fvd(self, real_videos=None, fake_videos=None, max_videos=None, device="cpu"):
 
-        real_data = self.get_real_data(
-            device=self.device, videos_dataloader=self.dataloader
+        if real_videos is None:
+            real_videos = self.get_real_data()[
+                "videos"
+            ]  # (batch_size, n_channels, n_frames, height, width)
+        if fake_videos is None:
+            fake_videos = self.get_fake_data()[
+                "videos"
+            ]  # (batch_size, n_channels, n_frames, height, width)
+
+        # Use shape (batch_size, n_frames, n_channels, height, width)
+        real_videos = real_videos.permute(0, 2, 1, 3, 4).detach().cpu().numpy()
+        fake_videos = fake_videos.permute(0, 2, 1, 3, 4).detach().cpu().numpy()
+
+        with importlib.resources.path(hgan.data, "i3d_torchscript.pt") as i3d_path:
+            detector = torch.jit.load(i3d_path).eval().to(device)
+
+        batch_size, num_frames, num_channels, height, width = real_videos.shape
+        assert num_channels == 3, "Inputs should be 3 channels"
+
+        resized_real_videos = []
+        for vid in real_videos[:max_videos]:
+            resized_video = np.asarray([resize(img, (3, 224, 224)) for img in vid])
+            resized_real_videos.append(resized_video)
+        resized_real_videos = np.array(resized_real_videos)
+
+        resized_fake_videos = []
+        for vid in fake_videos[:max_videos]:
+            resized_video = np.asarray([resize(img, (3, 224, 224)) for img in vid])
+            resized_fake_videos.append(resized_video)
+        resized_fake_videos = np.array(resized_fake_videos)
+
+        # detector expects inputs of shape (batch_size, num_channels, num_frames, height, width)
+        resized_real_videos = (
+            torch.from_numpy(resized_real_videos).to(device).permute(0, 2, 1, 3, 4)
         )
-        fake_data = self.get_fake_data(
-            video_lengths=video_lengths,
+        resized_fake_videos = (
+            torch.from_numpy(resized_fake_videos).to(device).permute(0, 2, 1, 3, 4)
         )
+
+        detector_kwargs = {
+            "rescale": False,
+            "resize": False,
+            "return_features": True,  # Return raw features before the softmax layer.
+        }
+        feats_real = (
+            detector(resized_real_videos, **detector_kwargs).detach().cpu().numpy()
+        )
+        feats_fake = (
+            detector(resized_fake_videos, **detector_kwargs).detach().cpu().numpy()
+        )
+
+        fvd = compute_fvd(real_activations=feats_real, generated_activations=feats_fake)
+        return fvd
+
+    def train_step(self):
+        real_data = self.get_real_data()
+        fake_data = self.get_fake_data()
 
         err, mean = update_models(
             rnn_type=self.architecture,
@@ -422,7 +484,7 @@ class Experiment:
             fake_data=fake_data,
         )
 
-        return err, mean, fake_data["videos"]
+        return err, mean, real_data, fake_data
 
     def train(self):
         save_config(self.config.paths.output)
@@ -435,9 +497,18 @@ class Experiment:
 
         start_time = time.time()
         for epoch in range(start_epoch + 1, self.n_epoch + 1):
-            err, mean, fake_videos = self.train_step()
+            err, mean, real_data, fake_data = self.train_step()
+
+            real_videos = real_data["videos"]
+            first_real_video = real_videos[0].data.cpu().numpy().transpose(1, 2, 3, 0)
+            fake_videos = fake_data["videos"]
+            first_fake_video = fake_videos[0].data.cpu().numpy().transpose(1, 2, 3, 0)
 
             last_epoch = epoch == self.n_epoch
+
+            if epoch % self.calculate_fvd_every == 0 or last_epoch:
+                fvd = self.fvd(real_videos=real_videos, fake_videos=fake_videos)
+                print(f"FVD = {fvd}")
 
             if epoch % self.print_every == 0 or last_epoch:
                 print(
@@ -458,8 +529,12 @@ class Experiment:
                 )
 
             if epoch % self.save_video_every == 0 or last_epoch:
-                video = fake_videos[0].data.cpu().numpy().transpose(1, 2, 3, 0)
-                self.save_video(self.config.paths.output, video, epoch)
+                self.save_video(
+                    self.config.paths.output, first_real_video, epoch, prefix="real_"
+                )
+                self.save_video(
+                    self.config.paths.output, first_fake_video, epoch, prefix="fake_"
+                )
 
             if epoch % self.save_model_every == 0 or last_epoch:
                 self.save_epoch(epoch)

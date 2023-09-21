@@ -14,6 +14,7 @@ class Pendulum(Environment):
     """
 
     WORLD_SIZE = 2.0
+    PHYSICAL_PROPERTIES = ("mass", "length", "g")
 
     def __init__(self, mass, length, g, q=None, p=None):
         """Constructor for pendulum system

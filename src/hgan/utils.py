@@ -6,6 +6,7 @@ import tensorflow as tf
 import torch
 import numpy as np
 import random
+import moviepy.video.io.ImageSequenceClip
 
 
 def setup_reproducibility(seed):
@@ -95,3 +96,17 @@ def load_filenames_and_parse_fn(
         return parsed
 
     return (file_name,), parse_fn
+
+
+def pngs_to_mp4(png_folder, mp4_path=None, fps=5):
+    image_files = sorted(
+        [
+            os.path.join(png_folder, img)
+            for img in os.listdir(png_folder)
+            if img.endswith(".png")
+        ]
+    )
+    clip = moviepy.video.io.ImageSequenceClip.ImageSequenceClip(image_files, fps=fps)
+    if mp4_path is None:
+        mp4_path = os.path.join(png_folder, "out.mp4")
+    clip.write_videofile(mp4_path)

@@ -57,7 +57,7 @@ class HgnTrainer:
             hyper_params=self.params,
             loss_freq=100,
             rollout_freq=1000,
-            model_freq=10000,
+            model_freq=1000,
             log_dir=params["log_dir"],
         )
 

@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.init as init
@@ -77,9 +78,9 @@ class Discriminator_I(nn.Module):
 
 
 class Discriminator_V(nn.Module):
-    def __init__(self, nc=3, ndf=64, T=16, ngpu=1):
+    def __init__(self, nc=3, ndf=64, T=16):
         super(Discriminator_V, self).__init__()
-        self.ngpu = ngpu
+        self.input_frames = T
         self.main = nn.Sequential(
             # nc x T x 96 x 96
             nn.Conv3d(
@@ -126,16 +127,16 @@ class Discriminator_V(nn.Module):
             nn.BatchNorm3d(num_features=ndf * 8),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
             Flatten(),
-            nn.Linear(in_features=int((ndf * 8) * (T / 16) * 6 * 6), out_features=1),
+            nn.Linear(in_features=int((ndf * 8) * (T // 16) * 6 * 6), out_features=1),
             nn.Sigmoid(),
         )
 
     def forward(self, input):
-        if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
-        else:
-            output = self.main(input)
-
+        input_length = input.shape[2]
+        input_start = np.random.randint(0, input_length - self.input_frames)
+        input_end = input_start + self.input_frames
+        input = input[:, :, input_start:input_end, :, :]
+        output = self.main(input)
         return output.view(-1, 1).squeeze(1)
 
 
@@ -410,7 +411,7 @@ class HNNPhaseSpace(HNNSimple):
             x = outputs[-1]
 
         outputs = torch.stack(outputs)
-        doutputs = torch.stack(doutputs)
+        doutputs = torch.stack(doutputs) if doutputs else None
 
         return outputs, doutputs
 

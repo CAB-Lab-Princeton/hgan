@@ -17,6 +17,7 @@ class NObjectGravity(Environment):
     """
 
     WORLD_SIZE = 3.0
+    PHYSICAL_PROPERTIES = ("mass", "g")
 
     def __init__(self, mass, g, orbit_noise=0.01, q=None, p=None):
         """Contructor for spring system

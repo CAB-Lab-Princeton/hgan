@@ -11,6 +11,7 @@ import functools
 from hgan.dm_hamiltonian_dynamics_suite import datasets
 from hgan.configuration import config
 from hgan.dm_datasets import all_systems, constant_physics, variable_physics
+from hgan.hgn.environments.environment_factory import EnvFactory
 
 
 class AviDataset(Dataset):
@@ -21,7 +22,6 @@ class AviDataset(Dataset):
 
         self.videos = self.get_videos()
         self.n_videos = len(self.videos)
-        self.video_lengths = [video.shape[1] for video in self.videos]
 
     def __len__(self):
         return len(self.videos)
@@ -50,41 +50,6 @@ class ToyPhysicsDataset(Dataset):
         self.delta = delta
         self.datapath = os.path.join(datapath, train_test)
         self.files = glob.glob(os.path.join(self.datapath, "*.npy"))
-
-        # TODO: Where did these come from?
-        self.video_lengths = [
-            39,
-            112,
-            101,
-            120,
-            43,
-            56,
-            64,
-            68,
-            36,
-            92,
-            36,
-            38,
-            84,
-            111,
-            56,
-            67,
-            119,
-            88,
-            68,
-            57,
-            50,
-            52,
-            42,
-            85,
-            76,
-            77,
-            37,
-            41,
-            48,
-            60,
-        ]  # [30]
-        self.video_lengths = [84] * 30
 
     def __len__(self):
         return len(self.files)
@@ -124,47 +89,12 @@ class ToyPhysicsDataset(Dataset):
 
 
 class ToyPhysicsDatasetNPZ(Dataset):
-    def __init__(self, config, datapath, num_frames, delta=1, train=True):
-        self.config = config
+    def __init__(self, *, datapath, num_frames, delta=1, train=True):
         train_test = "train" if train else "test"
         self.num_frames = num_frames
         self.delta = delta
         self.datapath = os.path.join(datapath, train_test)
         self.files = glob.glob(os.path.join(self.datapath, "*.npz"))
-
-        # TODO: Where do these come from?
-        self.video_lengths = [
-            39,
-            112,
-            101,
-            120,
-            43,
-            56,
-            64,
-            68,
-            36,
-            92,
-            36,
-            38,
-            84,
-            111,
-            56,
-            67,
-            119,
-            88,
-            68,
-            57,
-            50,
-            52,
-            42,
-            85,
-            76,
-            77,
-            37,
-            41,
-            48,
-            60,
-        ]
 
     def __len__(self):
         return len(self.files)
@@ -201,23 +131,35 @@ class ToyPhysicsDatasetNPZ(Dataset):
 
 
 class RealtimeDataset(Dataset):
-    def __init__(self, config, system_name=None, num_frames=16, delta=1, train=True):
-
-        self.config = config
+    def __init__(
+        self,
+        *,
+        ndim_physics=10,
+        system_name=None,
+        num_frames=16,
+        delta=1,
+        train=True,
+        system_physics_constant=True,
+        system_color_constant=True,
+        system_friction=False,
+        total_frames=100,
+        img_size=32,
+        normalize=False,
+    ):
 
         jax.config.update("jax_enable_x64", True)
 
         if system_name is None:
             system_names = all_systems
-            if self.config.experiment.system_color_constant:
+            if system_color_constant:
                 system_names = [x for x in system_names if "_COLORS" not in x]
-            if self.config.experiment.system_friction:
+            if system_friction:
                 system_names = [x for x in system_names if "_FRICTION" in x]
         else:
             system_name = system_name.upper()
-            if not self.config.experiment.system_color_constant:
+            if not system_color_constant:
                 system_name += "_COLORS"
-            if self.config.experiment.system_friction:
+            if system_friction:
                 system_name += "_FRICTION"
 
             assert system_name in all_systems, f"Unknown system {system_name}"
@@ -227,13 +169,12 @@ class RealtimeDataset(Dataset):
         self.system_names = system_names
 
         self.num_frames = num_frames
+        self.total_frames = total_frames
         self.delta = delta
         self.train = train
-
-        # Calling code in `get_fake_data` decides to randomly sample these `video_lengths`
-        # to decide on the length of a fake video sample, so it is okay to initialize `video_lengths`
-        # with a single value.
-        self.video_lengths = [self.config.video.total_frames]
+        self.ndim_physics = ndim_physics
+        self.img_size = img_size
+        self.normalize = normalize
 
         self.generate_fn = {}  # Generate functions, keyed by system
         self.features = {}  # Fixed features across all trajectories, keyed by system
@@ -244,11 +185,11 @@ class RealtimeDataset(Dataset):
 
             # Tweak the physics parameters to our liking
             # TODO: Is this okay to do for speedup? Will this modify the characteristics of the experiment drastically?
-            config_dict["image_resolution"] = self.config.experiment.img_size
+            config_dict["image_resolution"] = img_size
             _physics_key = (
                 system_name.replace("COLORS", "").replace("FRICTION", "").rstrip("_")
             )
-            if self.config.experiment.system_physics_constant:
+            if system_physics_constant:
                 config_dict |= constant_physics[_physics_key]
             else:
                 config_dict |= variable_physics[_physics_key]
@@ -260,7 +201,7 @@ class RealtimeDataset(Dataset):
                 system=obj,
                 dt=0.05,  # Blanchette 2021
                 # num_steps is always 1 less than the no. of samples we wish to generate
-                num_steps=self.config.video.total_frames - 1,
+                num_steps=total_frames - 1,
                 steps_per_dt=1,
             )
 
@@ -271,7 +212,7 @@ class RealtimeDataset(Dataset):
         return 50_000 if self.train else 10_000  # Blanchette 2021
 
     def _physics_vector_from_data(self, data):
-        ndim_physics = self.config.experiment.ndim_physics
+        ndim_physics = self.ndim_physics
         if ndim_physics <= 0:
             return 0
 
@@ -313,14 +254,14 @@ class RealtimeDataset(Dataset):
         end = start + self.num_frames
         vid = vid[start:end]
 
-        if img_size != self.config.experiment.img_size:
+        if img_size != self.img_size:
             vid = np.asarray(
                 [
                     resize(
                         img,
                         (
-                            self.config.experiment.img_size,
-                            self.config.experiment.img_size,
+                            self.img_size,
+                            self.img_size,
                             nc,
                         ),
                     )
@@ -328,13 +269,79 @@ class RealtimeDataset(Dataset):
                 ]
             )
 
-        # transpose each video to (nc, n_frames, img_size, img_size), and divide by 255
+        # transpose each video to (nc, n_frames, img_size, img_size)
         vid = vid.transpose(3, 0, 1, 2)
 
-        if self.config.video.normalize:
+        if self.normalize:
             vid = (vid - 0.5) / 0.5
 
         props = self._physics_vector_from_data(data)
+        return vid.astype(np.float32), system_name_index, props
+
+    def get_fake_labels(self, batch_size):
+        fake_labels = Variable(
+            torch.LongTensor(np.random.randint(0, len(self.system_names), batch_size))
+        )
+        return fake_labels
+
+
+class HGNRealtimeDataset(Dataset):
+    def __init__(
+        self,
+        *,
+        ndim_physics=10,
+        system_name=None,
+        num_frames=16,
+        delta=1,
+        train=True,
+        system_physics_constant=True,
+        system_color_constant=True,
+        system_friction=False,
+        total_frames=100,
+        img_size=32,
+        normalize=False,
+    ):
+
+        system_name_to_hgn_name = {"mass_spring": "Spring", "pendulum": "Pendulum"}
+        self.system_name = system_name_to_hgn_name[system_name]
+        self.system_names = [self.system_name]  # TODO
+
+        self.num_frames = num_frames
+        self.total_frames = total_frames
+        self.delta = delta
+        self.train = train
+        self.ndim_physics = ndim_physics
+        self.img_size = img_size
+        self.normalize = normalize
+
+    def __len__(self):
+        return 50_000 if self.train else 10_000  # Blanchette 2021
+
+    def __getitem__(self, item):
+        system = EnvFactory.get_environment(self.system_name)
+        # We're not using self.total_frames here at all, since we only want self.num_frames from
+        # the rollout, and the rollouts are randomly initialized anyway.
+        vids = system.sample_random_rollouts(
+            number_of_frames=self.num_frames,
+            delta_time=self.delta,
+            number_of_rollouts=1,
+            img_size=self.img_size,
+            noise_level=0.0,
+            radius_bound="auto",
+            color=True,
+            seed=None,
+        )
+
+        vid = vids[0]
+
+        # transpose each video to (nc, n_frames, img_size, img_size)
+        vid = vid.transpose(3, 0, 1, 2)
+
+        if self.normalize:
+            vid = (vid - 0.5) / 0.5
+
+        props = system.physical_properties(vec_length=self.ndim_physics)
+        system_name_index = 0
         return vid.astype(np.float32), system_name_index, props
 
     def get_fake_labels(self, batch_size):
