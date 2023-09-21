@@ -19,6 +19,7 @@ def main():
     envvars_overridden = (
         "HGAN_EXPERIMENT_SYSTEM_NAME",
         "HGAN_EXPERIMENT_N_EPOCH",
+        "HGAN_EXPERIMENT_BATCH_SIZE",
         "HGAN_EXPERIMENT_RT_DATA_GENERATOR",
         "HGAN_EXPERIMENT_SYSTEM_PHYSICS_CONSTANT",
         "HGAN_PATHS_INPUT",
@@ -29,6 +30,7 @@ def main():
 
     with tempfile.TemporaryDirectory() as output_dir:
         os.environ["HGAN_EXPERIMENT_N_EPOCH"] = "5"
+        os.environ["HGAN_EXPERIMENT_BATCH_SIZE"] = "4"
         os.environ["HGAN_PATHS_OUTPUT"] = output_dir
 
         logger.info("Running model with realtime Hamiltonian Physics")
@@ -41,6 +43,7 @@ def main():
 
     with tempfile.TemporaryDirectory() as output_dir:
         os.environ["HGAN_EXPERIMENT_N_EPOCH"] = "5"
+        os.environ["HGAN_EXPERIMENT_BATCH_SIZE"] = "4"
         os.environ["HGAN_PATHS_OUTPUT"] = output_dir
 
         logger.info("Running model against packaged .npz files")
