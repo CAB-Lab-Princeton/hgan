@@ -51,8 +51,13 @@ class ConfigSection(object):
             env_varname = "_".join(
                 [str(x).upper() for x in [self.config.name, self.name, item]]
             )
-            if env_var := os.getenv(env_varname):
-                return type(config_value)(env_var)
+            env_var = os.getenv(env_varname)
+            if env_var is not None:
+                val = type(config_value)(env_var)
+                if val == "":
+                    return None
+                else:
+                    return val
             return config_value
 
     def items(self):

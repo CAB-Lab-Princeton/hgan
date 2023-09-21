@@ -98,7 +98,7 @@ class Experiment:
             )
         else:
             dataset = ToyPhysicsDatasetNPZ(
-                datapath=self.datapath, num_frames=config.video.frames
+                datapath=self.datapath, num_frames=config.video.generator_frames
             )
 
         if len(dataset) == 0:

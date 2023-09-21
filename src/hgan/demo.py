@@ -18,7 +18,8 @@ def main():
 
     envvars_overridden = (
         "HGAN_EXPERIMENT_SYSTEM_NAME",
-        "HGAN_EXPERIMENT_HAMILTONIAN_PHYSICS_RT",
+        "HGAN_EXPERIMENT_N_EPOCH",
+        "HGAN_EXPERIMENT_RT_DATA_GENERATOR",
         "HGAN_EXPERIMENT_SYSTEM_PHYSICS_CONSTANT",
         "HGAN_PATHS_INPUT",
         "HGAN_PATHS_OUTPUT",
@@ -27,22 +28,24 @@ def main():
     envvars = {k: os.environ.get(k) for k in envvars_overridden}
 
     with tempfile.TemporaryDirectory() as output_dir:
+        os.environ["HGAN_EXPERIMENT_N_EPOCH"] = "5"
         os.environ["HGAN_PATHS_OUTPUT"] = output_dir
 
         logger.info("Running model with realtime Hamiltonian Physics")
 
-        os.environ["HGAN_EXPERIMENT_HAMILTONIAN_PHYSICS_RT"] = "1"
+        os.environ["HGAN_EXPERIMENT_RT_DATA_GENERATOR"] = "hgn"
         os.environ[
             "HGAN_EXPERIMENT_SYSTEM_PHYSICS_CONSTANT"
         ] = "0"  # Run with varying colors
         run(*args)
 
     with tempfile.TemporaryDirectory() as output_dir:
+        os.environ["HGAN_EXPERIMENT_N_EPOCH"] = "5"
         os.environ["HGAN_PATHS_OUTPUT"] = output_dir
 
         logger.info("Running model against packaged .npz files")
 
-        os.environ["HGAN_EXPERIMENT_HAMILTONIAN_PHYSICS_RT"] = "0"
+        os.environ["HGAN_EXPERIMENT_RT_DATA_GENERATOR"] = ""
         os.environ["HGAN_EXPERIMENT_SYSTEM_NAME"] = "pendulum_colors"
         os.environ["HGAN_PATHS_INPUT"] = data_dir
         run(*args)
