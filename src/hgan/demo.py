@@ -55,4 +55,5 @@ def main():
 
     # Reset envvars
     for k, v in envvars.items():
-        os.environ[k] = v or ""
+        if v is not None:
+            os.environ[k] = v
