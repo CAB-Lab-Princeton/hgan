@@ -1,3 +1,4 @@
+import logging
 import os.path
 import time
 import glob
@@ -17,6 +18,9 @@ from hgan.utils import setup_reproducibility, timeSince
 from hgan.fvd import compute_fvd
 from hgan.models import Discriminator_I, Discriminator_V, Generator_I
 from hgan.updates import update_models
+
+
+logger = logging.getLogger(__name__)
 
 
 class Experiment:
@@ -508,10 +512,10 @@ class Experiment:
 
             if epoch % self.calculate_fvd_every == 0 or last_epoch:
                 fvd = self.fvd(real_videos=real_videos, fake_videos=fake_videos)
-                print(f"FVD = {fvd}")
+                logger.info(f"FVD = {fvd}")
 
             if epoch % self.print_every == 0 or last_epoch:
-                print(
+                logger.info(
                     "[%d/%d] (%s) Loss_Di: %.4f Loss_Dv: %.4f Loss_Gi: %.4f Loss_Gv: %.4f Di_real_mean %.4f Di_fake_mean %.4f Dv_real_mean %.4f Dv_fake_mean %.4f"
                     % (
                         epoch,

@@ -41,6 +41,10 @@ jobs:
         run: |
           pre-commit run --all-files
 
+      - name: HGAN Demo
+        run: |
+          hgan demo
+
       - name: Pytest
         run: |
           pytest
