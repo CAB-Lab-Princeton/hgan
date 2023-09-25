@@ -5,6 +5,7 @@ import logging
 import matplotlib.pylab as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 import numpy as np
+import torch
 from sklearn.manifold import TSNE
 from hgan.configuration import load_config
 from hgan.experiment import Experiment
@@ -131,14 +132,36 @@ def main(*args):
     output_folder = args.output_folder
     config.save(output_folder)
 
+    energy_calculation_batch_size = 16  # Arbitrary
     experiment = Experiment(config)
+    rnn = experiment.rnn
+    hnn = rnn.hnn
+    rnn_input_shape = (
+        energy_calculation_batch_size,
+        experiment.ndim_epsilon + experiment.ndim_label + experiment.ndim_physics,
+    )
+    energy_file = os.path.join(output_folder, "energy.txt")
 
     saved_epochs = experiment.saved_epochs()
     for epoch in saved_epochs[:: args.every_nth]:
         logger.info(f"Processing epoch {epoch}")
         experiment.load_epoch(epoch)
 
-        logger.info("  Generating videos image")
+        noise = torch.randn(*rnn_input_shape).to(experiment.device)
+        z = rnn.phase_space_map(noise)
+        labels_and_physical_props = noise[:, experiment.ndim_epsilon :]
+        hnn_input = torch.cat((z, labels_and_physical_props), dim=1)
+        hnn_output = hnn(hnn_input)
+        energy_mean = float(hnn_output.mean())
+        energy_variance = float(hnn_output.var())
+
+        logger.info("  Calculating Energy")
+        with open(energy_file, "a") as f:
+            f.write(
+                f"epoch={epoch}, energy_mean={energy_mean}, energy_variance={energy_variance}\n"
+            )
+
+        logger.info("  Generating Videos Image")
         qualitative_results_img(
             experiment,
             f"{output_folder}/videos_{epoch:06d}.png",
@@ -160,7 +183,7 @@ def main(*args):
             fvd = experiment.fvd()
             fvd_score_file = os.path.join(output_folder, "fvd_scores.txt")
             with open(fvd_score_file, "a") as f:
-                f.write(f"Epoch {epoch}, fvd = {fvd}\n")
+                f.write(f"epoch={epoch}, fvd={fvd}\n")
 
 
 if __name__ == "__main__":

@@ -8,8 +8,8 @@ class TrainingLogger:
         self,
         hyper_params,
         loss_freq=100,
-        rollout_freq=1000,
-        model_freq=1000,
+        rollout_freq=100,
+        model_freq=100,
         log_dir="runs",
     ):
         """Instantiate a TrainingLogger.
@@ -19,9 +19,9 @@ class TrainingLogger:
             loss_freq (int, optional): Frequency at which the loss values are updated in
                 TensorBoard. Defaults to 100.
             rollout_freq (int, optional): Frequency at which videos are updated in TensorBoard.
-                Defaults to 1000.
+                Defaults to 100.
             model_freq (int, optional): Frequency at which a checkpoint of the model is saved.
-                Defaults to 1000.
+                Defaults to 100.
             log_dir (str, optional): Folder to use for logging
         """
         self.writer = SummaryWriter(
