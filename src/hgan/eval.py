@@ -59,6 +59,18 @@ def get_parser():
         default=False,
         help="Calculate fvd score for every processed epoch (expensive operation!)",
     )
+    parser.add_argument(
+        "--fvd-batch-size",
+        type=int,
+        default=16,
+        help="Number of real/fake videos to consider for fvd calculation (default 16)",
+    )
+    parser.add_argument(
+        "--fvd-on-cpu",
+        action="store_true",
+        default=False,
+        help="Whether to run FVD on cpu (for low memory GPUs; default False)",
+    )
     return parser
 
 
@@ -94,6 +106,7 @@ def qualitative_results_img(
 
     os.makedirs(os.path.dirname(png_path), exist_ok=True)
     plt.savefig(png_path)
+    plt.close(fig=fig)
 
 
 def qualitative_results_latent(
@@ -123,6 +136,7 @@ def qualitative_results_latent(
 
     os.makedirs(os.path.dirname(png_path), exist_ok=True)
     plt.savefig(png_path)
+    plt.close(fig=fig)
 
 
 def main(*args):
@@ -180,7 +194,8 @@ def main(*args):
 
         if args.calculate_fvd:
             logger.info("  Calculating FVD Score")
-            fvd = experiment.fvd()
+            fvd_device = "cpu" if args.fvd_on_cpu else experiment.device
+            fvd = experiment.fvd(device=fvd_device, max_videos=args.fvd_batch_size)
             fvd_score_file = os.path.join(output_folder, "fvd_scores.txt")
             with open(fvd_score_file, "a") as f:
                 f.write(f"epoch={epoch}, fvd={fvd}\n")
