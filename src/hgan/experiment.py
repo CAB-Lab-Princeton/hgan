@@ -188,6 +188,12 @@ class Experiment:
 
         return epoch
 
+    def eval(self):
+        for which in self.model_names:
+            if not which.startswith("optim"):
+                model = getattr(self, which)
+                model.eval()
+
     def save_video(self, folder, video, epoch, prefix="video_"):
         os.makedirs(folder, exist_ok=True)
         outputdata = video * 255
@@ -476,6 +482,7 @@ class Experiment:
             q_size=self.ndim_q,
             batch_size=self.batch_size,
             cyclic_coord_loss=self.cyclic_coord_loss,
+            r1_gamma=self.r1_gamma,
             model_di=self.Di,
             model_dv=self.Dv,
             model_gi=self.Gi,
@@ -491,6 +498,12 @@ class Experiment:
         return err, mean, real_data, fake_data
 
     def train(self):
+
+        for which in self.model_names:
+            if not which.startswith("optim"):
+                model = getattr(self, which)
+                model.eval()
+
         save_config(self.config.paths.output)
         setup_reproducibility(seed=self.seed)
 
@@ -532,12 +545,14 @@ class Experiment:
                     )
                 )
 
-            if epoch % self.save_video_every == 0 or last_epoch:
-                self.save_video(
-                    self.config.paths.output, first_real_video, epoch, prefix="real_"
-                )
+            if epoch % self.save_real_video_every == 0 or last_epoch:
                 self.save_video(
                     self.config.paths.output, first_fake_video, epoch, prefix="fake_"
+                )
+
+            if epoch % self.save_fake_video_every == 0 or last_epoch:
+                self.save_video(
+                    self.config.paths.output, first_real_video, epoch, prefix="real_"
                 )
 
             if epoch % self.save_model_every == 0 or last_epoch:

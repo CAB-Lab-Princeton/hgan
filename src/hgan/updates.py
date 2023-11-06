@@ -26,16 +26,18 @@ def bp_v(*, label, criterion, dis_v, inputs, y, retain=False):
     return err.item(), outputs  # .data.mean()
 
 
-def r1_loss(real_out, real_input):
+def r1_loss(r1_gamma, real_out, real_input):
     grad_real = grad(outputs=real_out.sum(), inputs=real_input, create_graph=True)[0]
     grad_penalty = (grad_real.view(grad_real.size(0), -1).norm(2, dim=1) ** 2).mean()
-    grad_penalty = 10 / 2 * grad_penalty
+    grad_penalty = r1_gamma / 2 * grad_penalty
     grad_penalty.backward()
 
     return grad_penalty
 
 
-def update_Dv(*, rnn_type, label, criterion, dis_v, real_data, fake_data, optim_Dv):
+def update_Dv(
+    *, rnn_type, label, criterion, r1_gamma, dis_v, real_data, fake_data, optim_Dv
+):
 
     real_videos = real_data["videos"]
     fake_videos = fake_data["videos"]
@@ -56,7 +58,8 @@ def update_Dv(*, rnn_type, label, criterion, dis_v, real_data, fake_data, optim_
     Dv_real_mean = real_out.data.mean()
 
     # https://github.com/rosinality/style-based-gan-pytorch/blob/a3d000e707b70d1a5fc277912dc9d7432d6e6069/train.py
-    # grad_penalty = None  # if rnn_type == 'gru' else r1_loss(real_out, real_videos)
+    if r1_gamma != 0:
+        _ = r1_loss(r1_gamma, real_out, real_videos)
 
     err_Dv_fake, fake_out = bp_v(
         label=label, criterion=criterion, dis_v=dis_v, inputs=fake_videos.detach(), y=0
@@ -73,7 +76,9 @@ def update_Dv(*, rnn_type, label, criterion, dis_v, real_data, fake_data, optim_
     return err_Dv, mean_Dv
 
 
-def update_Di(*, rnn_type, label, criterion, dis_i, real_data, fake_data, optim_Di):
+def update_Di(
+    *, rnn_type, label, criterion, r1_gamma, dis_i, real_data, fake_data, optim_Di
+):
 
     real_img = real_data["img"]
     fake_img = fake_data["img"]
@@ -94,7 +99,8 @@ def update_Di(*, rnn_type, label, criterion, dis_i, real_data, fake_data, optim_
     Di_real_mean = real_out.data.mean()
 
     # https://github.com/rosinality/style-based-gan-pytorch/blob/a3d000e707b70d1a5fc277912dc9d7432d6e6069/train.py
-    # grad_penalty = None  # if rnn_type == 'gru' else r1_loss(real_out, real_img)
+    if r1_gamma != 0:
+        _ = r1_loss(r1_gamma, real_out, real_img)
 
     err_Di_fake, fake_out = bp_i(
         label=label, criterion=criterion, dis_i=dis_i, inputs=fake_img.detach(), y=0
@@ -184,6 +190,7 @@ def update_models(
     q_size,
     batch_size,
     cyclic_coord_loss,
+    r1_gamma,
     model_di,
     model_dv,
     model_gi,
@@ -199,6 +206,7 @@ def update_models(
         rnn_type=rnn_type,
         label=label,
         criterion=criterion,
+        r1_gamma=r1_gamma,
         dis_v=model_dv,
         real_data=real_data,
         fake_data=fake_data,
@@ -208,6 +216,7 @@ def update_models(
         rnn_type=rnn_type,
         label=label,
         criterion=criterion,
+        r1_gamma=r1_gamma,
         dis_i=model_di,
         real_data=real_data,
         fake_data=fake_data,

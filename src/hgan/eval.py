@@ -146,12 +146,12 @@ def main(*args):
     output_folder = args.output_folder
     config.save(output_folder)
 
-    energy_calculation_batch_size = 16  # Arbitrary
     experiment = Experiment(config)
+    experiment.eval()
+
     rnn = experiment.rnn
     hnn = rnn.hnn
     rnn_input_shape = (
-        energy_calculation_batch_size,
         experiment.ndim_epsilon + experiment.ndim_label + experiment.ndim_physics,
     )
     energy_file = os.path.join(output_folder, "energy.txt")
@@ -161,19 +161,16 @@ def main(*args):
         logger.info(f"Processing epoch {epoch}")
         experiment.load_epoch(epoch)
 
+        logger.info("  Calculating Energy")
         noise = torch.randn(*rnn_input_shape).to(experiment.device)
         z = rnn.phase_space_map(noise)
-        labels_and_physical_props = noise[:, experiment.ndim_epsilon :]
-        hnn_input = torch.cat((z, labels_and_physical_props), dim=1)
+        labels_and_physical_props = noise[experiment.ndim_epsilon :]
+        hnn_input = torch.cat((z, labels_and_physical_props))
         hnn_output = hnn(hnn_input)
-        energy_mean = float(hnn_output.mean())
-        energy_variance = float(hnn_output.var())
+        energy = float(hnn_output)
 
-        logger.info("  Calculating Energy")
         with open(energy_file, "a") as f:
-            f.write(
-                f"epoch={epoch}, energy_mean={energy_mean}, energy_variance={energy_variance}\n"
-            )
+            f.write(f"epoch={epoch}, energy={energy}\n")
 
         logger.info("  Generating Videos Image")
         qualitative_results_img(
