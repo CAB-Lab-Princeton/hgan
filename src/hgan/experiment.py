@@ -86,7 +86,7 @@ class Experiment:
                 ndim_physics=config.experiment.ndim_physics,
                 system_name=config.experiment.system_name,
                 num_frames=config.video.generator_frames,
-                delta=1,
+                delta=0.05,
                 train=True,
                 system_physics_constant=config.experiment.system_physics_constant,
                 system_color_constant=config.experiment.system_color_constant,
@@ -172,7 +172,7 @@ class Experiment:
         epochs = [int(filename.split("_")[-1]) for filename in filenames]
         return epochs
 
-    def load_epoch(self, epoch=None):
+    def load_epoch(self, epoch=None, device=None):
         if epoch is None:
             saved_epochs = self.saved_epochs()
             if not saved_epochs:
@@ -184,7 +184,7 @@ class Experiment:
                 self.config.paths.output, f"{which}_{epoch:0>6}.pth"
             )
             model = getattr(self, which)
-            model.load_state_dict(torch.load(file_path))
+            model.load_state_dict(torch.load(file_path, map_location=device))
 
         return epoch
 
@@ -194,11 +194,18 @@ class Experiment:
                 model = getattr(self, which)
                 model.eval()
 
-    def save_video(self, folder, video, epoch, prefix="video_"):
+    def no_eval(self):
+        for which in self.model_names:
+            if not which.startswith("optim"):
+                model = getattr(self, which)
+                model.train()
+
+    def save_video(self, folder, video, epoch=None, filename=None, prefix="video_"):
         os.makedirs(folder, exist_ok=True)
         outputdata = video * 255
         outputdata = outputdata.astype(np.uint8)
-        file_path = os.path.join(folder, f"{prefix}{epoch:0>6}.mp4")
+        filename = filename or f"{prefix}{epoch:0>6}"
+        file_path = os.path.join(folder, f"{filename}.mp4")
         skvideo.io.vwrite(file_path, outputdata, verbosity=0)
 
     def save_epoch(self, epoch):
@@ -547,13 +554,65 @@ class Experiment:
 
             if epoch % self.save_real_video_every == 0 or last_epoch:
                 self.save_video(
-                    self.config.paths.output, first_fake_video, epoch, prefix="fake_"
+                    self.config.paths.output,
+                    first_fake_video,
+                    epoch=epoch,
+                    prefix="fake_",
                 )
 
             if epoch % self.save_fake_video_every == 0 or last_epoch:
                 self.save_video(
-                    self.config.paths.output, first_real_video, epoch, prefix="real_"
+                    self.config.paths.output,
+                    first_real_video,
+                    epoch=epoch,
+                    prefix="real_",
                 )
 
             if epoch % self.save_model_every == 0 or last_epoch:
                 self.save_epoch(epoch)
+
+
+class ExperimentOld(Experiment):
+    def saved_epochs(self):
+        saved_pths = sorted(
+            glob.glob(self.config.paths.output + "/Discriminator_I_*.model")
+        )
+        filenames = [os.path.splitext(os.path.basename(p))[0] for p in saved_pths]
+        epochs = [int(filename.split("-")[-1]) for filename in filenames]
+        return epochs
+
+    def load_epoch(self, epoch=None):
+        if epoch is None:
+            saved_epochs = self.saved_epochs()
+            if not saved_epochs:
+                return 0
+            epoch = saved_epochs[-1]
+
+        names = {
+            "Di": "Discriminator_I",
+            "Dv": "Discriminator_V",
+            "Gi": "Generator_I",
+            "rnn": self.rnn.__class__.__name__,
+            "optim_Di": "Discriminator_I",
+            "optim_Dv": "Discriminator_V",
+            "optim_Gi": "Generator_I",
+            "optim_rnn": self.rnn.__class__.__name__,
+        }
+        exts = {
+            "Di": "model",
+            "Dv": "model",
+            "Gi": "model",
+            "rnn": "model",
+            "optim_Di": "state",
+            "optim_Dv": "state",
+            "optim_Gi": "state",
+            "optim_rnn": "state",
+        }
+        for which in self.model_names:
+            file_path = os.path.join(
+                self.config.paths.output, f"{names[which]}_epoch-{epoch}.{exts[which]}"
+            )
+            model = getattr(self, which)
+            model.load_state_dict(torch.load(file_path))
+
+        return epoch

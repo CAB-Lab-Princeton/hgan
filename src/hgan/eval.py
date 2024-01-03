@@ -63,7 +63,7 @@ def get_parser():
         "--fvd-batch-size",
         type=int,
         default=16,
-        help="Number of real/fake videos to consider for fvd calculation (default 16)",
+        help="Number of real/fake videos to consider for fvd calculation (default (%default)s)",
     )
     parser.add_argument(
         "--fvd-on-cpu",
@@ -75,15 +75,28 @@ def get_parser():
 
 
 def qualitative_results_img(
-    experiment, png_path, fake=True, timeslots=8, samples=3, title=""
+    experiment,
+    png_path,
+    fake=True,
+    timeslots=8,
+    samples=3,
+    title="",
+    epoch=None,
+    save_video=False,
 ):
     data = experiment.get_fake_data() if fake else experiment.get_real_data()
 
     # (batch_size, nc, T, img_size, img_size) => (batch_size, T, img_size, img_size, nc)
     videos = data["videos"].permute(0, 2, 3, 4, 1)
-    # Normalize from [-1, 1] to [0, 1]
-    videos = videos / 2 + 0.5
     videos = videos.detach().cpu().numpy().squeeze()
+
+    if save_video:
+        experiment.save_video(
+            os.path.dirname(png_path),
+            videos[0],
+            epoch=epoch,
+            prefix="fake_" if fake else "real_",
+        )
 
     videos = videos[:samples, :timeslots, :, :, :]
     # Create a ndarray of video frames: timeslots, then samples_per_timeslot
@@ -140,6 +153,9 @@ def qualitative_results_latent(
 
 
 def main(*args):
+
+    device = "cpu" if not torch.cuda.is_available() else None
+
     args = get_parser().parse_args(args)
     config = load_config(args.config_path)
 
@@ -157,9 +173,10 @@ def main(*args):
     energy_file = os.path.join(output_folder, "energy.txt")
 
     saved_epochs = experiment.saved_epochs()
+
     for epoch in saved_epochs[:: args.every_nth]:
         logger.info(f"Processing epoch {epoch}")
-        experiment.load_epoch(epoch)
+        experiment.load_epoch(epoch, device=device)
 
         logger.info("  Calculating Energy")
         noise = torch.randn(*rnn_input_shape).to(experiment.device)
@@ -179,6 +196,9 @@ def main(*args):
             timeslots=args.generated_videos_timeslots,
             samples=args.generated_videos_samples,
             title=f"Epoch {epoch}",
+            epoch=epoch,
+            save_video=True,
+            fake=True,
         )
 
         logger.info("  Generating Latent Features Image")
