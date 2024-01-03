@@ -236,7 +236,7 @@ class Experiment:
         z_M = z_M.transpose(1, 0)
         if dz_M is not None:
             dz_M = dz_M.transpose(1, 0)
-        if self.rt_data_generator is not None:
+        if self.rt_data_generator is not None and dataset is not None:
             fake_labels = dataset.get_fake_labels(batch_size)
         else:
             fake_labels = Variable(torch.LongTensor(np.zeros((batch_size,))))

@@ -302,8 +302,25 @@ class HGNRealtimeDataset(Dataset):
         normalize=False,
     ):
 
-        system_name_to_hgn_name = {"mass_spring": "Spring", "pendulum": "Pendulum"}
-        self.system_name = system_name_to_hgn_name[system_name]
+        system_name_to_hgn_name_and_args = {
+            "mass_spring": ("Spring", {"mass": 0.5, "elastic_cst": 2.0}),
+            "pendulum": ("Pendulum", {"mass": 0.5, "length": 1.0, "g": 3.0}),
+            "double_pendulum": (
+                "ChaoticPendulum",
+                {"mass": 1.0, "length": 1.0, "g": 3.0},
+            ),
+            "two_body": (
+                "NObjectGravity",
+                {"mass": [1.0, 1.0], "g": 1.0, "orbit_noise": 0.1},
+            ),
+            "three_body": (
+                "NObjectGravity",
+                {"mass": [1.0, 1.0, 1.0], "g": 1.0, "orbit_noise": 0.1},
+            ),
+        }
+        self.system_name, self.system_args = system_name_to_hgn_name_and_args[
+            system_name
+        ]
         self.system_names = [self.system_name]  # TODO
 
         self.num_frames = num_frames
@@ -318,7 +335,7 @@ class HGNRealtimeDataset(Dataset):
         return 50_000 if self.train else 10_000  # Blanchette 2021
 
     def __getitem__(self, item):
-        system = EnvFactory.get_environment(self.system_name)
+        system = EnvFactory.get_environment(self.system_name, **self.system_args)
         # We're not using self.total_frames here at all, since we only want self.num_frames from
         # the rollout, and the rollouts are randomly initialized anyway.
         vids = system.sample_random_rollouts(

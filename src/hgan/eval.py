@@ -165,29 +165,21 @@ def main(*args):
     experiment = Experiment(config)
     experiment.eval()
 
-    rnn = experiment.rnn
-    hnn = rnn.hnn
-    rnn_input_shape = (
-        experiment.ndim_epsilon + experiment.ndim_label + experiment.ndim_physics,
-    )
-    energy_file = os.path.join(output_folder, "energy.txt")
-
     saved_epochs = experiment.saved_epochs()
 
     for epoch in saved_epochs[:: args.every_nth]:
         logger.info(f"Processing epoch {epoch}")
         experiment.load_epoch(epoch, device=device)
 
-        logger.info("  Calculating Energy")
-        noise = torch.randn(*rnn_input_shape).to(experiment.device)
-        z = rnn.phase_space_map(noise)
-        labels_and_physical_props = noise[experiment.ndim_epsilon :]
-        hnn_input = torch.cat((z, labels_and_physical_props))
-        hnn_output = hnn(hnn_input)
-        energy = float(hnn_output)
+        Z, _, _, _ = experiment.get_latent_sample(
+            batch_size=1, n_frames=config.video.generator_frames
+        )
+        Z_motion = Z[0, :, : experiment.ndim_epsilon, :, :].squeeze()
+        energy = experiment.rnn.hnn(Z_motion)
+        std_energy = float(torch.std(energy.squeeze()))
 
-        with open(energy_file, "a") as f:
-            f.write(f"epoch={epoch}, energy={energy}\n")
+        with open(os.path.join(output_folder, "energy.txt"), "a") as f:
+            f.write(f"epoch={epoch}, std_energy={std_energy}\n")
 
         logger.info("  Generating Videos Image")
         qualitative_results_img(
