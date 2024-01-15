@@ -58,15 +58,16 @@ def update_Dv(
     Dv_real_mean = real_out.data.mean()
 
     # https://github.com/rosinality/style-based-gan-pytorch/blob/a3d000e707b70d1a5fc277912dc9d7432d6e6069/train.py
+    r1_loss_value = 0
     if r1_gamma != 0:
-        _ = r1_loss(r1_gamma, real_out, real_videos)
+        r1_loss_value = r1_loss(r1_gamma, real_out, real_videos)
 
     err_Dv_fake, fake_out = bp_v(
         label=label, criterion=criterion, dis_v=dis_v, inputs=fake_videos.detach(), y=0
     )
     Dv_fake_mean = fake_out.data.mean()
 
-    err_Dv = err_Dv_real + err_Dv_fake
+    err_Dv = err_Dv_real + err_Dv_fake + r1_loss_value
 
     optim_Dv.step()
 
@@ -99,15 +100,16 @@ def update_Di(
     Di_real_mean = real_out.data.mean()
 
     # https://github.com/rosinality/style-based-gan-pytorch/blob/a3d000e707b70d1a5fc277912dc9d7432d6e6069/train.py
+    r1_loss_value = 0
     if r1_gamma != 0:
-        _ = r1_loss(r1_gamma, real_out, real_img)
+        r1_loss_value = r1_loss(r1_gamma, real_out, real_img)
 
     err_Di_fake, fake_out = bp_i(
         label=label, criterion=criterion, dis_i=dis_i, inputs=fake_img.detach(), y=0
     )
     Di_fake_mean = fake_out.data.mean()
 
-    err_Di = err_Di_real + err_Di_fake
+    err_Di = err_Di_real + err_Di_fake + r1_loss_value
 
     optim_Di.step()
 
