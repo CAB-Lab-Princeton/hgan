@@ -11,6 +11,11 @@ import functools
 from hgan.dm_hamiltonian_dynamics_suite import datasets
 from hgan.configuration import config
 from hgan.dm_datasets import all_systems, constant_physics, variable_physics
+from hgan.hgn_datasets import (
+    all_systems_hgn,
+    constant_physics_hgn,
+    variable_physics_hgn,
+)
 from hgan.hgn.environments.environment_factory import EnvFactory
 
 
@@ -246,8 +251,6 @@ class RealtimeDataset(Dataset):
         # assert image.dtype == np.uint8
 
         vid = np.array(image / 255)
-
-        vid = vid[:: self.delta]  # orig dt is 0.05
         n_frames, img_size, _, nc = vid.shape
 
         start = np.random.randint(0, n_frames - self.num_frames + 1)
@@ -302,26 +305,14 @@ class HGNRealtimeDataset(Dataset):
         normalize=False,
     ):
 
-        system_name_to_hgn_name_and_args = {
-            "mass_spring": ("Spring", {"mass": 0.5, "elastic_cst": 2.0}),
-            "pendulum": ("Pendulum", {"mass": 0.5, "length": 1.0, "g": 3.0}),
-            "double_pendulum": (
-                "ChaoticPendulum",
-                {"mass": 1.0, "length": 1.0, "g": 3.0},
-            ),
-            "two_body": (
-                "NObjectGravity",
-                {"mass": [1.0, 1.0], "g": 1.0, "orbit_noise": 0.1},
-            ),
-            "three_body": (
-                "NObjectGravity",
-                {"mass": [1.0, 1.0, 1.0], "g": 1.0, "orbit_noise": 0.1},
-            ),
-        }
-        self.system_name, self.system_args = system_name_to_hgn_name_and_args[
-            system_name
-        ]
-        self.system_names = [self.system_name]  # TODO
+        if system_name is None:
+            system_names = all_systems_hgn
+        else:
+            assert system_name in all_systems_hgn, f"Unknown system {system_name}"
+            system_names = [system_name]
+
+        assert system_names, "No system selected"
+        self.system_names = system_names
 
         self.num_frames = num_frames
         self.total_frames = total_frames
@@ -331,11 +322,39 @@ class HGNRealtimeDataset(Dataset):
         self.img_size = img_size
         self.normalize = normalize
 
+        assert not bool(system_friction), "No friction supported yet"
+        assert bool(system_color_constant), "Only constant color supported"
+
+        self.system_physics_constant = system_physics_constant
+        self.system_color_constant = system_color_constant
+        self.system_friction = system_friction
+
+        self.system_name_mapping = {
+            "mass_spring": "Spring",
+            "pendulum": "Pendulum",
+            "double_pendulum": "ChaoticPendulum",
+            "two_body": "NObjectGravity",
+            "three_body": "NObjectGravity",
+        }
+
     def __len__(self):
         return 50_000 if self.train else 10_000  # Blanchette 2021
 
     def __getitem__(self, item):
-        system = EnvFactory.get_environment(self.system_name, **self.system_args)
+        system_name_index = np.random.choice(len(self.system_names))
+        system_name = self.system_names[system_name_index]
+
+        system_args_which = {True: constant_physics_hgn, False: variable_physics_hgn}[
+            self.system_physics_constant
+        ][system_name]
+
+        system_args = {
+            k: (v() if not isinstance(v, list) else [_v() for _v in v])
+            for k, v in system_args_which.items()
+        }
+
+        system_name = self.system_name_mapping[system_name]
+        system = EnvFactory.get_environment(system_name, **system_args)
         # We're not using self.total_frames here at all, since we only want self.num_frames from
         # the rollout, and the rollouts are randomly initialized anyway.
         vids = system.sample_random_rollouts(
@@ -358,7 +377,6 @@ class HGNRealtimeDataset(Dataset):
             vid = (vid - 0.5) / 0.5
 
         props = system.physical_properties(vec_length=self.ndim_physics)
-        system_name_index = 0
         return vid.astype(np.float32), system_name_index, props
 
     def get_fake_labels(self, batch_size):

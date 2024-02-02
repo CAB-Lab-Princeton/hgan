@@ -97,8 +97,17 @@ class Experiment:
             )
         elif config.experiment.rt_data_generator == "dm":
             dataset = RealtimeDataset(
+                ndim_physics=config.experiment.ndim_physics,
                 system_name=config.experiment.system_name,
-                num_frames=config.video.frames,
+                num_frames=config.video.generator_frames,
+                delta=0.05,
+                train=True,
+                system_physics_constant=config.experiment.system_physics_constant,
+                system_color_constant=config.experiment.system_color_constant,
+                system_friction=config.experiment.system_friction,
+                total_frames=config.video.real_total_frames,
+                img_size=config.experiment.img_size,
+                normalize=config.video.normalize,
             )
         else:
             dataset = ToyPhysicsDatasetNPZ(
@@ -552,7 +561,7 @@ class Experiment:
                     )
                 )
 
-            if epoch % self.save_real_video_every == 0 or last_epoch:
+            if epoch % self.save_fake_video_every == 0 or last_epoch:
                 self.save_video(
                     self.config.paths.output,
                     first_fake_video,
@@ -560,7 +569,7 @@ class Experiment:
                     prefix="fake_",
                 )
 
-            if epoch % self.save_fake_video_every == 0 or last_epoch:
+            if epoch % self.save_real_video_every == 0 or last_epoch:
                 self.save_video(
                     self.config.paths.output,
                     first_real_video,

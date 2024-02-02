@@ -189,10 +189,19 @@ class Environment(ABC):
         if vec_length <= 0:
             return 0
         props = np.zeros(vec_length).astype(dtype)
-        for i, prop in enumerate(self.PHYSICAL_PROPERTIES):
-            if i == vec_length:
+
+        i = 0
+        for prop in self.PHYSICAL_PROPERTIES:
+            if i >= vec_length:
                 break
-            props[i] = getattr(self, prop)
+            _prop = getattr(self, prop)
+            if isinstance(_prop, (list, tuple)):
+                _prop_len = len(_prop)
+                props[i : i + _prop_len] = _prop
+                i += _prop_len
+            else:
+                props[i] = _prop
+                i += 1
         return props
 
 
