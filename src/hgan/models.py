@@ -7,6 +7,77 @@ from hgan.utils import choose_nonlinearity
 
 
 # see: _netD in https://github.com/pytorch/examples/blob/master/dcgan/main.py
+class ConditionalVariable(nn.Module):
+    def __init__(self, nc=3, ndf=64, T=16, outdim=10):
+        '''
+
+        Parameters
+        ----------
+        nc (number of channels)
+        ndf
+        T (number of time steps)
+        '''
+        super(ConditionalVariable, self).__init__()
+        self.input_frames = T
+        self.outdim = outdim
+        self.main = nn.Sequential(
+            # nc x T x 96 x 96
+            nn.Conv3d(
+                in_channels=nc,
+                out_channels=ndf,
+                kernel_size=4,
+                stride=2,
+                padding=1,
+                bias=False,
+            ),
+            # ndf x T/2 x 48 x 48
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.Conv3d(
+                in_channels=ndf,
+                out_channels=ndf * 2,
+                kernel_size=4,
+                stride=2,
+                padding=1,
+                bias=False,
+            ),
+            # 2*ndf x T/4 x 24 x 24
+            nn.BatchNorm3d(num_features=ndf * 2),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.Conv3d(
+                in_channels=ndf * 2,
+                out_channels=ndf * 4,
+                kernel_size=4,
+                stride=2,
+                padding=1,
+                bias=False,
+            ),
+            # 4*ndf x T/8 x 12 x 12
+            nn.BatchNorm3d(num_features=ndf * 4),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.Conv3d(
+                in_channels=ndf * 4,
+                out_channels=ndf * 8,
+                kernel_size=4,
+                stride=2,
+                padding=1,
+                bias=False,
+            ),
+            # 8*ndf x T/16 x 6 x 6
+            nn.BatchNorm3d(num_features=ndf * 8),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            Flatten(),
+            nn.Linear(in_features=int((ndf * 8) * (T // 16) * 6 * 6), out_features=self.outdim)
+        )
+
+    def forward(self, input):
+        input_length = input.shape[2]
+        input_start = np.random.randint(0, input_length - self.input_frames)
+        input_end = input_start + self.input_frames
+        input = input[:, :, input_start:input_end, :, :]
+        output = self.main(input)
+        return output.view(-1, self.outdim).squeeze(1)
+
+
 class Discriminator_I(nn.Module):
     def __init__(self, nc=3, ndf=64, ngpu=1):
         super(Discriminator_I, self).__init__()
