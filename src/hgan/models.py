@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.init as init
 from torch.autograd import Variable, grad
 from hgan.utils import choose_nonlinearity
+from hgan.configuration import config
 
 
 # see: _netD in https://github.com/pytorch/examples/blob/master/dcgan/main.py
@@ -20,6 +21,7 @@ class ConditionalVariable(nn.Module):
         super(ConditionalVariable, self).__init__()
         self.input_frames = T
         self.outdim = outdim
+        self.outmap = torch.nn.Parameter(torch.ones(config.experiment.batch_size), requires_grad=True)
         self.main = nn.Sequential(
             # nc x T x 96 x 96
             nn.Conv3d(
@@ -74,7 +76,8 @@ class ConditionalVariable(nn.Module):
         input_start = np.random.randint(0, input_length - self.input_frames)
         input_end = input_start + self.input_frames
         input = input[:, :, input_start:input_end, :, :]
-        output = self.main(input)
+        output = torch.mm(self.outmap.view(1, -1), self.main(input))
+
         return output.view(-1, self.outdim).squeeze(1)
 
 
