@@ -10,18 +10,20 @@ from hgan.configuration import config
 # see: _netD in https://github.com/pytorch/examples/blob/master/dcgan/main.py
 class ConditionalVariable(nn.Module):
     def __init__(self, nc=3, ndf=64, T=16, outdim=10):
-        '''
+        """
 
         Parameters
         ----------
         nc (number of channels)
         ndf
         T (number of time steps)
-        '''
+        """
         super(ConditionalVariable, self).__init__()
         self.input_frames = T
         self.outdim = outdim
-        self.outmap = torch.nn.Parameter(torch.ones(config.experiment.batch_size), requires_grad=True)
+        self.outmap = torch.nn.Parameter(
+            torch.ones(config.experiment.batch_size), requires_grad=True
+        )
         self.main = nn.Sequential(
             # nc x T x 96 x 96
             nn.Conv3d(
@@ -68,7 +70,9 @@ class ConditionalVariable(nn.Module):
             nn.BatchNorm3d(num_features=ndf * 8),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
             Flatten(),
-            nn.Linear(in_features=int((ndf * 8) * (T // 16) * 6 * 6), out_features=self.outdim)
+            nn.Linear(
+                in_features=int((ndf * 8) * (T // 16) * 6 * 6), out_features=self.outdim
+            ),
         )
 
     def forward(self, input):
