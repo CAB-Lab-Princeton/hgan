@@ -3,7 +3,7 @@ import numpy as np
 
 all_systems_hgn = (
     "mass_spring",
-    "mass_spring",
+    "pendulum",
     "double_pendulum",
     "two_body",
     "three_body",
