@@ -402,7 +402,7 @@ class Experiment:
     def get_real_data(self, device=None, dataloader=None):
         device = device or self.device
         dataloader = dataloader or self.dataloader
-        label_and_props = None
+        label_and_props = torch.tensor([])
         next_item = next(iter(dataloader))
         if isinstance(next_item, (tuple, list)):
             real_videos = next_item[0]
