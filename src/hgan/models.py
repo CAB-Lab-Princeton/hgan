@@ -386,7 +386,7 @@ class HNNSimple(nn.Module):
 
         return outputs
 
-    def leap_frog_step(self, x, labels=None):
+    def leap_frog_step(self, x, label_and_props=None):
         """
         one step of leap frog integration
 
@@ -394,30 +394,29 @@ class HNNSimple(nn.Module):
         q, p = torch.chunk(x, 2, dim=1)
         q.requires_grad_()
         p.requires_grad_()
-        if labels is None:
-            labels = torch.Tensor().to(
+        if label_and_props is None:
+            label_and_props = torch.Tensor().to(
                 p.device
             )  # Empty Tensor so we can concatenate without issues
-        labels.requires_grad_()
+        label_and_props.requires_grad_()
 
         x = torch.cat((q, p), dim=1)
-        hnn_input = torch.cat((x, labels), dim=1)
+        hnn_input = torch.cat((label_and_props, x), dim=1)
         energy = self.hnn(hnn_input)
         dpdt = -grad(energy.sum(), q, create_graph=True)[0]
         p_half = p + dpdt * (self.dt / 2)
 
-        x_half = torch.cat((q, p_half, labels), dim=1)
+        x_half = torch.cat((label_and_props, q, p_half), dim=1)
         energy = self.hnn(x_half)
         dqdt = grad(energy.sum(), p, create_graph=True)[0]
 
         q_next = q + dqdt * self.dt
 
-        x_next = torch.cat((q_next, p_half, labels), dim=1)
+        x_next = torch.cat((label_and_props, q_next, p_half), dim=1)
         energy = self.hnn(x_next)
         dpdt = -grad(energy.sum(), q_next, create_graph=True)[0]
 
         p_next = p_half + dpdt * (self.dt / 2)
-        # import pdb; pdb.set_trace()
         x_next = torch.cat((q_next, p_next), dim=1)
         dx_next = torch.cat((dqdt, dpdt), dim=1)
 
@@ -475,15 +474,15 @@ class HNNPhaseSpace(HNNSimple):
 
     def forward(self, TM_noise, n_frames):
         x = self.phase_space_map(TM_noise)
-        labels = (
-            TM_noise[:, -(self.ndim_label + self.ndim_physics) :]
+        label_and_props = (
+            TM_noise[:, : (self.ndim_label + self.ndim_physics)]
             if (self.ndim_label + self.ndim_physics) > 0
             else None
         )
         outputs = [x]
         doutputs = []
         for i in range(n_frames - 1):
-            x_next, dx_next = self.leap_frog_step(x, labels)
+            x_next, dx_next = self.leap_frog_step(x, label_and_props)
             outputs.append(x_next)
             doutputs.append(dx_next)
             x = outputs[-1]

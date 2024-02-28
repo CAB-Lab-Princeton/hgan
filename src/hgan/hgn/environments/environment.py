@@ -187,7 +187,7 @@ class Environment(ABC):
 
     def physical_properties(self, vec_length, dtype=np.float32):
         if vec_length <= 0:
-            return 0
+            return []
         props = np.zeros(vec_length).astype(dtype)
 
         i = 0

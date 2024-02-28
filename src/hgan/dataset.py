@@ -292,6 +292,7 @@ class HGNRealtimeDataset(Dataset):
     def __init__(
         self,
         *,
+        ndim_label=3,
         ndim_physics=10,
         system_name=None,
         num_frames=16,
@@ -305,19 +306,18 @@ class HGNRealtimeDataset(Dataset):
         normalize=False,
     ):
 
+        self.system_names = all_systems_hgn
+        self.n_systems = len(self.system_names)
         if system_name is None:
-            system_names = all_systems_hgn
+            self.system_index = None
         else:
-            assert system_name in all_systems_hgn, f"Unknown system {system_name}"
-            system_names = [system_name]
-
-        assert system_names, "No system selected"
-        self.system_names = system_names
+            self.system_index = self.system_names.index(system_name)
 
         self.num_frames = num_frames
         self.total_frames = total_frames
         self.delta = delta
         self.train = train
+        self.ndim_label = ndim_label
         self.ndim_physics = ndim_physics
         self.img_size = img_size
         self.normalize = normalize
@@ -337,12 +337,18 @@ class HGNRealtimeDataset(Dataset):
             "three_body": "NObjectGravity",
         }
 
+        self.system_embedding = torch.nn.Embedding(self.n_systems, self.ndim_label)
+
     def __len__(self):
         return 50_000 if self.train else 10_000  # Blanchette 2021
 
     def __getitem__(self, item):
-        system_name_index = np.random.choice(len(self.system_names))
-        system_name = self.system_names[system_name_index]
+        if self.system_index is None:
+            system_index = np.random.choice(self.n_systems)
+        else:
+            system_index = self.system_index
+
+        system_name = self.system_names[system_index]
 
         system_args_which = {True: constant_physics_hgn, False: variable_physics_hgn}[
             self.system_physics_constant
@@ -376,8 +382,14 @@ class HGNRealtimeDataset(Dataset):
         if self.normalize:
             vid = (vid - 0.5) / 0.5
 
-        props = system.physical_properties(vec_length=self.ndim_physics)
-        return vid.astype(np.float32), system_name_index, props
+        labels_and_props = torch.cat(
+            (
+                self.system_embedding(torch.tensor([system_index])).squeeze(),
+                torch.tensor(system.physical_properties(vec_length=self.ndim_physics)),
+            )
+        )
+
+        return (vid.astype(np.float32), labels_and_props)
 
     def get_fake_labels(self, batch_size):
         fake_labels = Variable(

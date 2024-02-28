@@ -83,6 +83,7 @@ class Experiment:
     def _init_dataloader(self, config):
         if config.experiment.rt_data_generator == "hgn":
             dataset = HGNRealtimeDataset(
+                ndim_label=config.experiment.ndim_label,
                 ndim_physics=config.experiment.ndim_physics,
                 system_name=config.experiment.system_name,
                 num_frames=config.video.generator_frames,
@@ -234,9 +235,10 @@ class Experiment:
         return z_C
 
     def compute_phase_space_motion_vector(
-        self, batch_size, d_E, d_L, d_P, device, dataset, n_frames, rnn
+        self, batch_size, d_E, d_L, d_P, device, dataset, n_frames, rnn, label_and_props
     ):
-        eps = Variable(torch.randn(batch_size, d_E + d_L + d_P))
+        eps = Variable(torch.randn(batch_size, d_E))
+        eps = torch.cat((label_and_props, eps), dim=1)
         eps = eps.to(device)
 
         rnn.initHidden(batch_size)
@@ -245,18 +247,24 @@ class Experiment:
         z_M = z_M.transpose(1, 0)
         if dz_M is not None:
             dz_M = dz_M.transpose(1, 0)
-        if self.rt_data_generator is not None and dataset is not None:
-            fake_labels = dataset.get_fake_labels(batch_size)
-        else:
-            fake_labels = Variable(torch.LongTensor(np.zeros((batch_size,))))
-        fake_props = eps[:, -(d_L + d_P) :] if (d_L + d_P) > 0 else None
-        return z_M, dz_M, fake_labels, fake_props
+        return z_M, dz_M
 
     def get_phase_space_sample(
-        self, batch_size, d_C, d_E, d_L, d_P, device, nz, dataset, rnn, n_frames
+        self,
+        batch_size,
+        d_C,
+        d_E,
+        d_L,
+        d_P,
+        device,
+        nz,
+        dataset,
+        rnn,
+        n_frames,
+        label_and_props=None,
     ):
         z_C = self.get_random_content_vector(batch_size, d_C, device, n_frames)
-        z_M, dz_M, labels, props = self.compute_phase_space_motion_vector(
+        z_M, dz_M = self.compute_phase_space_motion_vector(
             batch_size=batch_size,
             d_E=d_E,
             d_L=d_L,
@@ -265,10 +273,11 @@ class Experiment:
             dataset=dataset,
             n_frames=n_frames,
             rnn=rnn,
+            label_and_props=label_and_props,
         )
         z = torch.cat((z_M, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
 
-        return z.view(batch_size, n_frames, nz, 1, 1), dz_M, labels, props
+        return z.view(batch_size, n_frames, nz, 1, 1), dz_M
 
     def compute_simple_motion_vector(self, batch_size, d_E, device, n_frames, rnn):
         eps = Variable(torch.randn(batch_size, d_E))
@@ -300,7 +309,7 @@ class Experiment:
         z_M = self.compute_simple_motion_vector(batch_size, d_E, device, n_frames, rnn)
         z = torch.cat((z_M, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
 
-        return z.view(batch_size, n_frames, nz, 1, 1), None, None, None
+        return z.view(batch_size, n_frames, nz, 1, 1), None
 
     def get_mass_sample(self, batch_size, d_C, d_E, d_N, device, nz, rnn, n_frames):
         z_C = self.get_random_content_vector(batch_size, d_C, device, n_frames)
@@ -308,13 +317,9 @@ class Experiment:
             batch_size, d_E, d_N, device, n_frames, rnn
         )
         z = torch.cat((z_M, z_mass, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
-        return z.view(batch_size, n_frames, nz, 1, 1), None, None, None
+        return z.view(batch_size, n_frames, nz, 1, 1), None
 
-    def get_latent_sample(
-        self,
-        batch_size,
-        n_frames,
-    ):
+    def get_latent_sample(self, batch_size, n_frames, label_and_props=None):
         # TODO: Do this through inheritance
         if self.architecture in ("gru", "hnn_simple"):
             return self.get_simple_sample(
@@ -338,6 +343,7 @@ class Experiment:
                 dataset=self.dataloader.dataset,
                 rnn=self.rnn,
                 n_frames=n_frames,
+                label_and_props=label_and_props,
             )
         else:
             return self.get_mass_sample(
@@ -357,12 +363,13 @@ class Experiment:
         end = start + n_frame
         return video[:, start:end, ...]
 
-    def get_fake_data(self, n_frames=None):
+    def get_fake_data(self, n_frames=None, label_and_props=None):
         n_frames = n_frames or self.config.video.generator_frames
         # Z.size() => (batch_size, n_frames, nz, 1, 1)
-        Z, dz, labels, props = self.get_latent_sample(
+        Z, dz = self.get_latent_sample(
             batch_size=self.batch_size,
             n_frames=n_frames,
+            label_and_props=label_and_props,
         )
         # trim => (batch_size, T, nz, 1, 1)
         Z = self.trim_video(video=Z, n_frame=n_frames)
@@ -378,14 +385,7 @@ class Experiment:
         # img sampling
         fake_img = fake_videos[:, :, np.random.randint(0, n_frames), :, :]
 
-        fake_data = {
-            "videos": fake_videos,
-            "img": fake_img,
-            "latent": Z,
-            "dlatent": dz,
-            "system": labels,
-            "props": props,
-        }
+        fake_data = {"videos": fake_videos, "img": fake_img, "latent": Z, "dlatent": dz}
 
         return fake_data
 
@@ -402,14 +402,12 @@ class Experiment:
     def get_real_data(self, device=None, dataloader=None):
         device = device or self.device
         dataloader = dataloader or self.dataloader
-        real_system = real_props = None
+        label_and_props = None
         next_item = next(iter(dataloader))
         if isinstance(next_item, (tuple, list)):
             real_videos = next_item[0]
             if len(next_item) > 1:
-                real_system = next_item[1]
-            if len(next_item) > 2:
-                real_props = next_item[2]
+                label_and_props = next_item[1]
         else:
             real_videos = next_item
 
@@ -425,8 +423,7 @@ class Experiment:
         real_data = {
             "videos": real_videos,
             "img": real_img,
-            "system": real_system,
-            "props": real_props,
+            "label_and_props": label_and_props,
         }
 
         return real_data
@@ -489,7 +486,8 @@ class Experiment:
 
     def train_step(self):
         real_data = self.get_real_data()
-        fake_data = self.get_fake_data()
+        label_and_props = real_data["label_and_props"]
+        fake_data = self.get_fake_data(label_and_props=label_and_props)
 
         err, mean = update_models(
             rnn_type=self.architecture,
