@@ -126,13 +126,20 @@ class Experiment:
         )
 
     def _init_models(self, config):
+        n_label_and_props = (
+            config.experiment.ndim_label + config.experiment.ndim_physics
+        )
         self.Di = Discriminator_I(
-            self.ndim_channel, self.ndim_discriminator_filter, ngpu=self.ngpu
+            self.ndim_channel,
+            self.ndim_discriminator_filter,
+            ngpu=self.ngpu,
+            n_label_and_props=n_label_and_props,
         ).to(self.device)
         self.Dv = Discriminator_V(
             self.ndim_channel,
             self.ndim_discriminator_filter,
             T=config.video.discriminator_frames,
+            n_label_and_props=n_label_and_props,
         ).to(self.device)
         self.Gi = Generator_I(
             self.ndim_channel, self.ndim_generator_filter, self.nz, ngpu=self.ngpu
@@ -238,8 +245,8 @@ class Experiment:
         self, batch_size, d_E, d_L, d_P, device, dataset, n_frames, rnn, label_and_props
     ):
         eps = Variable(torch.randn(batch_size, d_E))
-        eps = torch.cat((label_and_props, eps), dim=1)
         eps = eps.to(device)
+        eps = torch.cat((label_and_props, eps), dim=1)
 
         rnn.initHidden(batch_size)
         # notice that 1st dim of gru outputs is seq_len, 2nd is batch_size
@@ -415,6 +422,8 @@ class Experiment:
             device
         )  # (batch_size, ndim_channels, n_frames, img_size, img_size)
         real_videos = Variable(real_videos)
+        label_and_props = label_and_props.to(device)
+        label_and_props = Variable(label_and_props)
 
         real_videos_frames = real_videos.shape[2]
 

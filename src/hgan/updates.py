@@ -2,11 +2,11 @@ import torch
 from torch.autograd import Variable, grad
 
 
-def bp_i(*, label, criterion, dis_i, inputs, y, retain=False):
+def bp_i(*, label, criterion, dis_i, inputs, label_and_props, y, retain=False):
     label.resize_(inputs.size(0)).fill_(y)
     labelv = Variable(label)
 
-    outputs = dis_i(inputs)
+    outputs = dis_i(inputs, label_and_props)
 
     err = criterion(outputs, labelv)
     err.backward(retain_graph=retain)
@@ -14,11 +14,11 @@ def bp_i(*, label, criterion, dis_i, inputs, y, retain=False):
     return err.item(), outputs  # .data.mean()
 
 
-def bp_v(*, label, criterion, dis_v, inputs, y, retain=False):
+def bp_v(*, label, criterion, dis_v, inputs, label_and_props, y, retain=False):
     label.resize_(inputs.size(0)).fill_(y)
     labelv = Variable(label)
 
-    outputs = dis_v(inputs)
+    outputs = dis_v(inputs, label_and_props)
 
     err = criterion(outputs, labelv)
     err.backward(retain_graph=retain)
@@ -40,6 +40,7 @@ def update_Dv(
 ):
 
     real_videos = real_data["videos"]
+    label_and_props = real_data["label_and_props"]
     fake_videos = fake_data["videos"]
 
     dis_v.zero_grad()
@@ -52,6 +53,7 @@ def update_Dv(
         criterion=criterion,
         dis_v=dis_v,
         inputs=real_videos,
+        label_and_props=label_and_props,
         y=0.9,
         retain=True,
     )
@@ -63,7 +65,12 @@ def update_Dv(
         r1_loss_value = r1_loss(r1_gamma, real_out, real_videos)
 
     err_Dv_fake, fake_out = bp_v(
-        label=label, criterion=criterion, dis_v=dis_v, inputs=fake_videos.detach(), y=0
+        label=label,
+        criterion=criterion,
+        dis_v=dis_v,
+        inputs=fake_videos.detach(),
+        label_and_props=label_and_props,
+        y=0,
     )
     Dv_fake_mean = fake_out.data.mean()
 
@@ -82,6 +89,7 @@ def update_Di(
 ):
 
     real_img = real_data["img"]
+    label_and_props = real_data["label_and_props"]
     fake_img = fake_data["img"]
 
     dis_i.zero_grad()
@@ -94,6 +102,7 @@ def update_Di(
         criterion=criterion,
         dis_i=dis_i,
         inputs=real_img,
+        label_and_props=label_and_props,
         y=0.9,
         retain=True,
     )  # TODO: Why 0.9 and not 1.0?
@@ -105,7 +114,12 @@ def update_Di(
         r1_loss_value = r1_loss(r1_gamma, real_out, real_img)
 
     err_Di_fake, fake_out = bp_i(
-        label=label, criterion=criterion, dis_i=dis_i, inputs=fake_img.detach(), y=0
+        label=label,
+        criterion=criterion,
+        dis_i=dis_i,
+        inputs=fake_img.detach(),
+        label_and_props=label_and_props,
+        y=0,
     )
     Di_fake_mean = fake_out.data.mean()
 
@@ -133,7 +147,8 @@ def update_G(
     model_rnn,
     fake_data,
     optim_Gi,
-    optim_RNN
+    optim_RNN,
+    label_and_props
 ):
     model_gi.zero_grad()
     model_rnn.zero_grad()
@@ -145,6 +160,7 @@ def update_G(
         criterion=criterion,
         dis_v=model_dv,
         inputs=fake_data["videos"],
+        label_and_props=label_and_props,
         y=0.9,
         retain=True,
     )
@@ -156,6 +172,7 @@ def update_G(
             criterion=criterion,
             dis_i=model_di,
             inputs=fake_data["img"],
+            label_and_props=label_and_props,
             y=0.9,
             retain=True,
         )
@@ -238,6 +255,7 @@ def update_models(
         fake_data=fake_data,
         optim_Gi=optim_gi,
         optim_RNN=optim_rnn,
+        label_and_props=real_data["label_and_props"],
     )
 
     err = {**err_Dv, **err_Di, **err_G}

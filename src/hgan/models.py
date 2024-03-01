@@ -86,9 +86,10 @@ class ConditionalVariable(nn.Module):
 
 
 class Discriminator_I(nn.Module):
-    def __init__(self, nc=3, ndf=64, ngpu=1):
+    def __init__(self, nc=3, ndf=64, ngpu=1, n_label_and_props=0):
         super(Discriminator_I, self).__init__()
         self.ngpu = ngpu
+        self.n_label_and_props = n_label_and_props
         self.main = nn.Sequential(
             # nc x 96 x 96
             nn.Conv2d(
@@ -143,22 +144,31 @@ class Discriminator_I(nn.Module):
                 bias=False,
             ),
             # 1 x 1 x 1
+        )
+
+        self.main2 = nn.Sequential(
+            nn.Linear(in_features=1 + self.n_label_and_props, out_features=1),
             nn.Sigmoid(),
         )
 
-    def forward(self, input):
+    def forward(self, input, label_and_props):
         if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
+            raise RuntimeError("label_and_props not supported yet")
+            # output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
         else:
             output = self.main(input)
+            output = output.view(-1, 1)
+            output = torch.cat((label_and_props, output), dim=1)
+            output = self.main2(output)
 
-        return output.view(-1, 1).squeeze(1)
+        return output.squeeze(1)
 
 
 class Discriminator_V(nn.Module):
-    def __init__(self, nc=3, ndf=64, T=16):
+    def __init__(self, nc=3, ndf=64, T=16, n_label_and_props=0):
         super(Discriminator_V, self).__init__()
         self.input_frames = T
+        self.n_label_and_props = n_label_and_props
         self.main = nn.Sequential(
             # nc x T x 96 x 96
             nn.Conv3d(
@@ -204,17 +214,26 @@ class Discriminator_V(nn.Module):
             # 8*ndf x T/16 x 6 x 6
             nn.BatchNorm3d(num_features=ndf * 8),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
-            Flatten(),
-            nn.Linear(in_features=int((ndf * 8) * (T // 16) * 6 * 6), out_features=1),
+            Flatten()
+            # 8*ndf x T/16 x 6 x 6
+        )
+
+        self.main2 = nn.Sequential(
+            nn.Linear(
+                in_features=int((ndf * 8) * (T // 16) * 6 * 6) + self.n_label_and_props,
+                out_features=1,
+            ),
             nn.Sigmoid(),
         )
 
-    def forward(self, input):
+    def forward(self, input, label_and_props):
         input_length = input.shape[2]
         input_start = np.random.randint(0, input_length - self.input_frames)
         input_end = input_start + self.input_frames
         input = input[:, :, input_start:input_end, :, :]
         output = self.main(input)
+        output = torch.cat((label_and_props, output), dim=1)
+        output = self.main2(output)
         return output.view(-1, 1).squeeze(1)
 
 

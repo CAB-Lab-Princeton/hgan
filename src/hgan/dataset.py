@@ -389,7 +389,7 @@ class HGNRealtimeDataset(Dataset):
             )
         )
 
-        return (vid.astype(np.float32), labels_and_props)
+        return vid.astype(np.float32), labels_and_props
 
     def get_fake_labels(self, batch_size):
         fake_labels = Variable(
