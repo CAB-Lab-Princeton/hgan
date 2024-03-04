@@ -90,10 +90,18 @@ class Discriminator_I(nn.Module):
         super(Discriminator_I, self).__init__()
         self.ngpu = ngpu
         self.n_label_and_props = n_label_and_props
+
+        # A layer that converts |n_label_and_props| vector to a vector of size
+        # |config.experiment.img_size|
+        # (tiled and added as an additional input channel).
+        self.label_handler = nn.Linear(
+            in_features=n_label_and_props, out_features=config.experiment.img_size
+        )
+
         self.main = nn.Sequential(
-            # nc x 96 x 96
+            # nc+1 x 96 x 96
             nn.Conv2d(
-                in_channels=nc,
+                in_channels=nc + 1,  # 1 additional channel for label input
                 out_channels=ndf,
                 kernel_size=4,
                 stride=2,
@@ -144,24 +152,26 @@ class Discriminator_I(nn.Module):
                 bias=False,
             ),
             # 1 x 1 x 1
-        )
-
-        self.main2 = nn.Sequential(
-            nn.Linear(in_features=1 + self.n_label_and_props, out_features=1),
             nn.Sigmoid(),
         )
 
     def forward(self, input, label_and_props):
         if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
-            raise RuntimeError("label_and_props not supported yet")
+            raise NotImplementedError
             # output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
         else:
+            label_and_props_input = self.label_handler(label_and_props)
+            # Add a new channel of shape (batch_size, 1, L, L)
+            # where L is the image size, and channel values are identically
+            # tiled next to each other
+            label_and_props_input = label_and_props_input[:, None, :, None].repeat(
+                1, 1, 1, label_and_props_input.shape[1]
+            )
+            # Append new channel to input
+            input = torch.cat((label_and_props_input, input), dim=1)
             output = self.main(input)
-            output = output.view(-1, 1)
-            output = torch.cat((label_and_props, output), dim=1)
-            output = self.main2(output)
 
-        return output.squeeze(1)
+        return output.view(-1, 1).squeeze(1)
 
 
 class Discriminator_V(nn.Module):
@@ -169,10 +179,18 @@ class Discriminator_V(nn.Module):
         super(Discriminator_V, self).__init__()
         self.input_frames = T
         self.n_label_and_props = n_label_and_props
+
+        # A layer that converts |n_label_and_props| vector to a vector of size
+        # |config.experiment.img_size|
+        # (tiled and added as an additional input channel).
+        self.label_handler = nn.Linear(
+            in_features=n_label_and_props, out_features=config.experiment.img_size
+        )
+
         self.main = nn.Sequential(
-            # nc x T x 96 x 96
+            # nc+1 x T x 96 x 96
             nn.Conv3d(
-                in_channels=nc,
+                in_channels=nc + 1,  # 1 additional channel for label input
                 out_channels=ndf,
                 kernel_size=4,
                 stride=2,
@@ -214,15 +232,8 @@ class Discriminator_V(nn.Module):
             # 8*ndf x T/16 x 6 x 6
             nn.BatchNorm3d(num_features=ndf * 8),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
-            Flatten()
-            # 8*ndf x T/16 x 6 x 6
-        )
-
-        self.main2 = nn.Sequential(
-            nn.Linear(
-                in_features=int((ndf * 8) * (T // 16) * 6 * 6) + self.n_label_and_props,
-                out_features=1,
-            ),
+            Flatten(),
+            nn.Linear(in_features=int((ndf * 8) * (T // 16) * 6 * 6), out_features=1),
             nn.Sigmoid(),
         )
 
@@ -231,9 +242,19 @@ class Discriminator_V(nn.Module):
         input_start = np.random.randint(0, input_length - self.input_frames)
         input_end = input_start + self.input_frames
         input = input[:, :, input_start:input_end, :, :]
+
+        label_and_props_input = self.label_handler(label_and_props)
+        # Add a new channel of shape (batch_size, 1, self.input_frames, L, L)
+        # where L is the image size, and channel values are identically
+        # tiled next to each other
+        label_and_props_input = label_and_props_input[:, None, None, :, None].repeat(
+            1, 1, self.input_frames, 1, label_and_props_input.shape[1]
+        )
+
+        # Append new channel to input
+        input = torch.cat((label_and_props_input, input), dim=1)
         output = self.main(input)
-        output = torch.cat((label_and_props, output), dim=1)
-        output = self.main2(output)
+
         return output.view(-1, 1).squeeze(1)
 
 
