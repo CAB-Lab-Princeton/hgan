@@ -92,10 +92,10 @@ class Discriminator_I(nn.Module):
         self.n_label_and_props = n_label_and_props
 
         # A layer that converts |n_label_and_props| vector to a vector of size
-        # |config.experiment.img_size|
-        # (tiled and added as an additional input channel).
+        # config.experiment.img_size^2
+        # (added as an additional input channel).
         self.label_handler = nn.Linear(
-            in_features=n_label_and_props, out_features=config.experiment.img_size
+            in_features=n_label_and_props, out_features=config.experiment.img_size**2
         )
 
         self.main = nn.Sequential(
@@ -162,11 +162,10 @@ class Discriminator_I(nn.Module):
         else:
             label_and_props_input = self.label_handler(label_and_props)
             # Add a new channel of shape (batch_size, 1, L, L)
-            # where L is the image size, and channel values are identically
-            # tiled next to each other
-            label_and_props_input = label_and_props_input[:, None, :, None].repeat(
-                1, 1, 1, label_and_props_input.shape[1]
-            )
+            # where L is the image size
+            label_and_props_input = label_and_props_input.reshape(
+                -1, input.shape[-1], input.shape[-1]
+            )[:, None, :, :]
             # Append new channel to input
             input = torch.cat((label_and_props_input, input), dim=1)
             output = self.main(input)
@@ -181,10 +180,10 @@ class Discriminator_V(nn.Module):
         self.n_label_and_props = n_label_and_props
 
         # A layer that converts |n_label_and_props| vector to a vector of size
-        # |config.experiment.img_size|
-        # (tiled and added as an additional input channel).
+        # config.experiment.img_size^2
+        # (added as an additional input channel).
         self.label_handler = nn.Linear(
-            in_features=n_label_and_props, out_features=config.experiment.img_size
+            in_features=n_label_and_props, out_features=config.experiment.img_size**2
         )
 
         self.main = nn.Sequential(
@@ -245,11 +244,10 @@ class Discriminator_V(nn.Module):
 
         label_and_props_input = self.label_handler(label_and_props)
         # Add a new channel of shape (batch_size, 1, self.input_frames, L, L)
-        # where L is the image size, and channel values are identically
-        # tiled next to each other
-        label_and_props_input = label_and_props_input[:, None, None, :, None].repeat(
-            1, 1, self.input_frames, 1, label_and_props_input.shape[1]
-        )
+        # where L is the image size
+        label_and_props_input = label_and_props_input.reshape(
+            -1, input.shape[-1], input.shape[-1]
+        )[:, None, None, :, :].repeat(1, 1, self.input_frames, 1, 1)
 
         # Append new channel to input
         input = torch.cat((label_and_props_input, input), dim=1)

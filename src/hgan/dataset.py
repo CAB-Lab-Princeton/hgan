@@ -4,7 +4,6 @@ import skvideo.io
 from skimage.transform import resize
 import numpy as np
 import torch
-from torch.autograd import Variable
 from torch.utils.data import Dataset
 import jax
 import functools
@@ -132,7 +131,7 @@ class ToyPhysicsDatasetNPZ(Dataset):
         if config.video.normalize:
             vid = (vid - 0.5) / 0.5
 
-        return vid.astype(np.float32)
+        return vid.astype(np.float32), torch.tensor([])
 
 
 class RealtimeDataset(Dataset):
@@ -281,12 +280,6 @@ class RealtimeDataset(Dataset):
         props = self._physics_vector_from_data(data)
         return vid.astype(np.float32), system_name_index, props
 
-    def get_fake_labels(self, batch_size):
-        fake_labels = Variable(
-            torch.LongTensor(np.random.randint(0, len(self.system_names), batch_size))
-        )
-        return fake_labels
-
 
 class HGNRealtimeDataset(Dataset):
     def __init__(
@@ -390,9 +383,3 @@ class HGNRealtimeDataset(Dataset):
         )
 
         return vid.astype(np.float32), labels_and_props
-
-    def get_fake_labels(self, batch_size):
-        fake_labels = Variable(
-            torch.LongTensor(np.random.randint(0, len(self.system_names), batch_size))
-        )
-        return fake_labels

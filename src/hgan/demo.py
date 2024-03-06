@@ -22,6 +22,8 @@ def main():
         "HGAN_EXPERIMENT_BATCH_SIZE",
         "HGAN_EXPERIMENT_RT_DATA_GENERATOR",
         "HGAN_EXPERIMENT_SYSTEM_PHYSICS_CONSTANT",
+        "HGAN_EXPERIMENT_NDIM_LABEL",
+        "HGAN_EXPERIMENT_NDIM_PHYSICS",
         "HGAN_PATHS_INPUT",
         "HGAN_PATHS_OUTPUT",
     )
@@ -49,6 +51,8 @@ def main():
         logger.info("Running model against packaged .npz files")
 
         os.environ["HGAN_EXPERIMENT_RT_DATA_GENERATOR"] = ""
+        os.environ["HGAN_EXPERIMENT_NDIM_LABEL"] = "0"
+        os.environ["HGAN_EXPERIMENT_NDIM_PHYSICS"] = "0"
         os.environ["HGAN_EXPERIMENT_SYSTEM_NAME"] = "pendulum_colors"
         os.environ["HGAN_PATHS_INPUT"] = data_dir
         run(*args)
