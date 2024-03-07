@@ -246,8 +246,8 @@ class Experiment:
     ):
         eps = Variable(torch.randn(batch_size, d_E))
         eps = eps.to(device)
-        eps = torch.cat((label_and_props, eps), dim=1)
-
+        if label_and_props is not None:
+            eps = torch.cat((label_and_props.repeat(batch_size, 1), eps), dim=1)
         rnn.initHidden(batch_size)
         # notice that 1st dim of gru outputs is seq_len, 2nd is batch_size
         z_M, dz_M = rnn(eps, n_frames)
@@ -496,6 +496,9 @@ class Experiment:
     def train_step(self):
         real_data = self.get_real_data()
         label_and_props = real_data["label_and_props"]
+        # label_and_props is (batch_size, n), take the first slice and get
+        # a (1, n) tensor
+        label_and_props = label_and_props[0][None, ...]
         fake_data = self.get_fake_data(label_and_props=label_and_props)
 
         err, mean = update_models(

@@ -101,7 +101,10 @@ class Discriminator_I(nn.Module):
         self.main = nn.Sequential(
             # nc+1 x 96 x 96
             nn.Conv2d(
-                in_channels=nc + 1,  # 1 additional channel for label input
+                in_channels=nc
+                + (
+                    1 if n_label_and_props > 0 else 0
+                ),  # 1 additional channel for label input
                 out_channels=ndf,
                 kernel_size=4,
                 stride=2,
@@ -160,14 +163,15 @@ class Discriminator_I(nn.Module):
             raise NotImplementedError
             # output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
         else:
-            label_and_props_input = self.label_handler(label_and_props)
-            # Add a new channel of shape (batch_size, 1, L, L)
-            # where L is the image size
-            label_and_props_input = label_and_props_input.reshape(
-                -1, input.shape[-1], input.shape[-1]
-            )[:, None, :, :]
-            # Append new channel to input
-            input = torch.cat((label_and_props_input, input), dim=1)
+            if self.n_label_and_props > 0:
+                label_and_props_input = self.label_handler(label_and_props)
+                # Add a new channel of shape (batch_size, 1, L, L)
+                # where L is the image size
+                label_and_props_input = label_and_props_input.reshape(
+                    -1, input.shape[-1], input.shape[-1]
+                )[:, None, :, :]
+                # Append new channel to input
+                input = torch.cat((label_and_props_input, input), dim=1)
             output = self.main(input)
 
         return output.view(-1, 1).squeeze(1)
@@ -189,7 +193,10 @@ class Discriminator_V(nn.Module):
         self.main = nn.Sequential(
             # nc+1 x T x 96 x 96
             nn.Conv3d(
-                in_channels=nc + 1,  # 1 additional channel for label input
+                in_channels=nc
+                + (
+                    1 if n_label_and_props > 0 else 0
+                ),  # 1 additional channel for label input
                 out_channels=ndf,
                 kernel_size=4,
                 stride=2,
@@ -242,15 +249,17 @@ class Discriminator_V(nn.Module):
         input_end = input_start + self.input_frames
         input = input[:, :, input_start:input_end, :, :]
 
-        label_and_props_input = self.label_handler(label_and_props)
-        # Add a new channel of shape (batch_size, 1, self.input_frames, L, L)
-        # where L is the image size
-        label_and_props_input = label_and_props_input.reshape(
-            -1, input.shape[-1], input.shape[-1]
-        )[:, None, None, :, :].repeat(1, 1, self.input_frames, 1, 1)
+        if self.n_label_and_props > 0:
+            label_and_props_input = self.label_handler(label_and_props)
+            # Add a new channel of shape (batch_size, 1, self.input_frames, L, L)
+            # where L is the image size
+            label_and_props_input = label_and_props_input.reshape(
+                -1, input.shape[-1], input.shape[-1]
+            )[:, None, None, :, :].repeat(1, 1, self.input_frames, 1, 1)
 
-        # Append new channel to input
-        input = torch.cat((label_and_props_input, input), dim=1)
+            # Append new channel to input
+            input = torch.cat((label_and_props_input, input), dim=1)
+
         output = self.main(input)
 
         return output.view(-1, 1).squeeze(1)

@@ -83,8 +83,13 @@ def qualitative_results_img(
     title="",
     epoch=None,
     save_video=False,
+    label_and_props=None,
 ):
-    data = experiment.get_fake_data() if fake else experiment.get_real_data()
+    data = (
+        experiment.get_fake_data(label_and_props=label_and_props)
+        if fake
+        else experiment.get_real_data()
+    )
 
     # (batch_size, nc, T, img_size, img_size) => (batch_size, T, img_size, img_size, nc)
     videos = data["videos"].permute(0, 2, 3, 4, 1)
@@ -123,11 +128,15 @@ def qualitative_results_img(
 
 
 def qualitative_results_latent(
-    experiment, batch_size, png_path, perplexity_values=(2, 5, 30, 50, 100), title=""
+    experiment,
+    batch_size,
+    png_path,
+    perplexity_values=(2, 5, 30, 50, 100),
+    title="",
+    label_and_props=None,
 ):
-    Z, _, _, _ = experiment.get_latent_sample(
-        batch_size=batch_size,
-        n_frames=1,
+    Z, _ = experiment.get_latent_sample(
+        batch_size=batch_size, n_frames=1, label_and_props=label_and_props
     )  # shape (batch_size, n_frames, |ndim_q + ndim_p + ndim_content + ndim_label|, 1, 1)
 
     X = [
@@ -167,15 +176,23 @@ def main(*args):
 
     saved_epochs = experiment.saved_epochs()
 
+    real_data = experiment.get_real_data()
+    label_and_props = real_data["label_and_props"][0, ...][None, :]
+
     for epoch in saved_epochs[:: args.every_nth]:
         logger.info(f"Processing epoch {epoch}")
         experiment.load_epoch(epoch, device=device)
 
-        Z, _, _, _ = experiment.get_latent_sample(
-            batch_size=1, n_frames=config.video.generator_frames
+        Z, _ = experiment.get_latent_sample(
+            batch_size=1,
+            n_frames=config.video.generator_frames,
+            label_and_props=label_and_props,
         )
         Z_motion = Z[0, :, : experiment.ndim_epsilon, :, :].squeeze()
-        energy = experiment.rnn.hnn(Z_motion)
+        hnn_input = torch.concat(
+            (Z_motion, label_and_props.repeat(config.video.generator_frames, 1)), axis=1
+        )
+        energy = experiment.rnn.hnn(hnn_input)
         std_energy = float(torch.std(energy.squeeze()))
 
         with open(os.path.join(output_folder, "energy.txt"), "a") as f:
@@ -191,6 +208,7 @@ def main(*args):
             epoch=epoch,
             save_video=True,
             fake=True,
+            label_and_props=label_and_props,
         )
 
         logger.info("  Generating Latent Features Image")
@@ -199,6 +217,7 @@ def main(*args):
             batch_size=args.latent_batch_size,
             png_path=f"{output_folder}/config_{epoch:06d}.png",
             title=f"Epoch {epoch}",
+            label_and_props=label_and_props,
         )
 
         if args.calculate_fvd:
