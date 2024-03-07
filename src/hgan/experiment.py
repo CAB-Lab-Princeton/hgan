@@ -437,14 +437,23 @@ class Experiment:
 
         return real_data
 
-    def fvd(self, real_videos=None, fake_videos=None, max_videos=None, device="cpu"):
+    def fvd(
+        self,
+        real_videos=None,
+        fake_videos=None,
+        max_videos=None,
+        device="cpu",
+        label_and_props=None,
+    ):
 
         if real_videos is None:
-            real_videos = self.get_real_data()[
+            real_data = self.get_real_data()
+            real_videos = real_data[
                 "videos"
             ]  # (batch_size, n_channels, n_frames, height, width)
+            label_and_props = real_data["label_and_props"][0, ...][None, :]
         if fake_videos is None:
-            fake_videos = self.get_fake_data()[
+            fake_videos = self.get_fake_data(label_and_props=label_and_props)[
                 "videos"
             ]  # (batch_size, n_channels, n_frames, height, width)
 

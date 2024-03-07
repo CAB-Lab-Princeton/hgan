@@ -2,6 +2,7 @@ import os
 import sys
 import argparse
 import logging
+import matplotlib
 import matplotlib.pylab as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 import numpy as np
@@ -12,6 +13,7 @@ from hgan.experiment import Experiment
 
 
 logger = logging.getLogger(__name__)
+matplotlib.use("agg")
 
 
 def get_parser():
