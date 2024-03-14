@@ -356,18 +356,22 @@ class HGNRealtimeDataset(Dataset):
         system = EnvFactory.get_environment(system_name, **system_args)
         # We're not using self.total_frames here at all, since we only want self.num_frames from
         # the rollout, and the rollouts are randomly initialized anyway.
-        vids = system.sample_random_rollouts(
-            number_of_frames=self.num_frames,
-            delta_time=self.delta,
-            number_of_rollouts=1,
-            img_size=self.img_size,
-            noise_level=0.1,
-            radius_bound="auto",
-            color=True,
-            seed=None,
-        )
 
-        vid = vids[0]
+        vid = None
+        # Rollouts are not guaranteed to give us self.num_frames in certain
+        # cases where solve_ivp fails - keep trying till they do.
+        while vid is None or vid.shape[0] != self.num_frames:
+            vids = system.sample_random_rollouts(
+                number_of_frames=self.num_frames,
+                delta_time=self.delta,
+                number_of_rollouts=1,
+                img_size=self.img_size,
+                noise_level=0.1,
+                radius_bound="auto",
+                color=True,
+                seed=None,
+            )
+            vid = vids[0]
 
         # transpose each video to (nc, n_frames, img_size, img_size)
         vid = vid.transpose(3, 0, 1, 2)
