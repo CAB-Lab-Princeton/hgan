@@ -316,7 +316,6 @@ class HGNRealtimeDataset(Dataset):
         self.normalize = normalize
 
         assert not bool(system_friction), "No friction supported yet"
-        assert bool(system_color_constant), "Only constant color supported"
 
         self.system_physics_constant = system_physics_constant
         self.system_color_constant = system_color_constant
@@ -370,6 +369,7 @@ class HGNRealtimeDataset(Dataset):
                 radius_bound="auto",
                 color=True,
                 seed=None,
+                constant_color=self.system_color_constant,
             )
             vid = vids[0]
 

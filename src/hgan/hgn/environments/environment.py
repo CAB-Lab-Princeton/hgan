@@ -141,6 +141,7 @@ class Environment(ABC):
         noise_level=0.1,
         radius_bound=(1.3, 2.3),
         seed=None,
+        constant_color=True,
     ):
         """Samples random rollouts for a given environment
 
@@ -158,6 +159,7 @@ class Environment(ABC):
                 Optionally, it can be a string 'auto'. In that case, the value returned by
                 get_default_radius_bounds() will be returned.
             seed (int): Seed for reproducibility.
+            constant_color (bool): Whether to do all rollouts using the default ball color
         Raises:
             AssertError: If radius_bound[0] > radius_bound[1]
         Returns:
@@ -181,7 +183,7 @@ class Environment(ABC):
                     * noise_level
                     * self.get_max_noise_std()
                 )
-            batch_sample.append(self._draw(img_size, color))
+            batch_sample.append(self._draw(img_size, color, constant_color))
 
         return np.array(batch_sample)
 

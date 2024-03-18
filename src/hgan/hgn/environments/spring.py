@@ -85,20 +85,23 @@ class Spring(Environment):
             -2 * self.damping_ratio * w0 * states[1] - self.elastic_cst * states[0],
         ]
 
-    def _draw(self, res=32, color=True):
+    def _draw(self, res=32, color=True, constant_color=True):
         """Returns array of the environment evolution
 
         Args:
             res (int): Image resolution (images are square).
             color (bool): True if RGB, false if grayscale.
-
+            constant_color (bool): True if rollout uses default ball color
         Returns:
             vid (np.ndarray): Rendered rollout as a sequence of images
         """
         q = self._rollout[0, :]
         length = len(q)
         vid = np.zeros((length, res, res, 3), dtype="float")
-        ball_color = self._default_ball_colors[0]
+        if constant_color:
+            ball_color = self._default_ball_colors[0]
+        else:
+            ball_color = tuple(np.random.random(3))
         space_res = 2.0 * self.get_world_size() / res
         for t in range(length):
             vid[t] = cv2.circle(

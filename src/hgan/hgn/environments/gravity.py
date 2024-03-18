@@ -131,13 +131,13 @@ class NObjectGravity(Environment):
                 dyn[1, i, d] += mom_term * self.mass[i]
         return dyn.reshape(-1)
 
-    def _draw(self, res=32, color=True):
+    def _draw(self, res=32, color=True, constant_color=True):
         """Returns array of the environment evolution
 
         Args:
             res (int): Image resolution (images are square).
             color (bool): True if RGB, false if grayscale.
-
+            constant_color (bool): True if rollout uses default ball color
         Returns:
             vid (np.ndarray): Numpy array of shape (seq_len, height, width, channels)
                 containing the rendered rollout as a sequence of images.
@@ -145,7 +145,13 @@ class NObjectGravity(Environment):
         q = self._rollout.reshape(2, self.n_objects, 2, -1)[0]
         length = q.shape[-1]
         vid = np.zeros((length, res, res, 3), dtype="float")
-        ball_colors = self._default_ball_colors
+        if constant_color:
+            ball_colors = self._default_ball_colors
+        else:
+            ball_colors = [
+                tuple(np.random.random(3))
+                for _ in range(len(self._default_ball_colors))
+            ]
         space_res = 2.0 * self.get_world_size() / res
         if self.n_objects == 2:
             factor = 0.55
