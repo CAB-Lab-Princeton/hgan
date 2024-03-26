@@ -35,6 +35,7 @@ class Experiment:
             "optim_Dv",
             "optim_Gi",
             "optim_rnn",
+            "system_embedding",
         )
         self.Di = self.Dv = self.Gi = self.rnn = None
         self.optim_Di = self.optim_Dv = self.optim_Gi = self.optim_rnn = None
@@ -182,6 +183,10 @@ class Experiment:
         self.optim_rnn = torch.optim.Adam(
             self.rnn.parameters(), lr=self.learning_rate, betas=self.betas
         )
+
+    @property
+    def system_embedding(self):
+        return self.dataloader.dataset.system_embedding
 
     def saved_epochs(self):
         saved_pths = sorted(glob.glob(self.config.paths.output + "/Di_*.pth"))
