@@ -94,6 +94,7 @@ class Spring(Environment):
             constant_color (bool): True if rollout uses default ball color
         Returns:
             vid (np.ndarray): Rendered rollout as a sequence of images
+            ball_color (3-tuple): Color of the ball in the environment
         """
         q = self._rollout[0, :]
         length = len(q)
@@ -116,7 +117,7 @@ class Spring(Environment):
         vid[vid > 1.0] = 1.0
         if not color:
             vid = np.expand_dims(np.max(vid, axis=-1), -1)
-        return vid
+        return vid, ball_color
 
     def _sample_init_conditions(self, radius_bound):
         """Samples random initial conditions for the environment

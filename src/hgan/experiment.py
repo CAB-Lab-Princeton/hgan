@@ -86,6 +86,7 @@ class Experiment:
             dataset = HGNRealtimeDataset(
                 ndim_label=config.experiment.ndim_label,
                 ndim_physics=config.experiment.ndim_physics,
+                ndim_color=config.experiment.ndim_color,
                 system_name=config.experiment.system_name,
                 num_frames=config.video.generator_frames,
                 delta=0.05,
@@ -128,7 +129,9 @@ class Experiment:
 
     def _init_models(self, config):
         n_label_and_props = (
-            config.experiment.ndim_label + config.experiment.ndim_physics
+            config.experiment.ndim_label
+            + config.experiment.ndim_physics
+            + config.experiment.ndim_color
         )
         self.Di = Discriminator_I(
             self.ndim_channel,
@@ -143,7 +146,10 @@ class Experiment:
             n_label_and_props=n_label_and_props,
         ).to(self.device)
         self.Gi = Generator_I(
-            self.ndim_channel, self.ndim_generator_filter, self.nz, ngpu=self.ngpu
+            self.ndim_channel,
+            self.ndim_generator_filter,
+            self.nz + self.ndim_color,
+            ngpu=self.ngpu,
         ).to(self.device)
 
         rnn_class = {
@@ -375,7 +381,7 @@ class Experiment:
         end = start + n_frame
         return video[:, start:end, ...]
 
-    def get_fake_data(self, n_frames=None, label_and_props=None):
+    def get_fake_data(self, n_frames=None, label_and_props=None, colors=None):
         n_frames = n_frames or self.config.video.generator_frames
         # Z.size() => (batch_size, n_frames, nz, 1, 1)
         Z, dz = self.get_latent_sample(
@@ -386,6 +392,16 @@ class Experiment:
         # trim => (batch_size, T, nz, 1, 1)
         Z = self.trim_video(video=Z, n_frame=n_frames)
         Z_reshape = Z.contiguous().view(self.batch_size * n_frames, self.nz, 1, 1)
+
+        # Append color information; duplicating it for each frame
+        # (batch_size, n) => (batch_size * n_frames, n, 1, 1)
+        colors_reshape = (
+            colors.unsqueeze(1)
+            .repeat(1, n_frames, 1)
+            .contiguous()
+            .view(self.batch_size * n_frames, -1, 1, 1)
+        )
+        Z_reshape = torch.cat((Z_reshape, colors_reshape), dim=1)
 
         fake_videos = self.Gi(Z_reshape)
 
@@ -415,9 +431,12 @@ class Experiment:
         device = device or self.device
         dataloader = dataloader or self.dataloader
         label_and_props = torch.tensor([])
+        colors = torch.tensor([])
         next_item = next(iter(dataloader))
         if isinstance(next_item, (tuple, list)):
             real_videos = next_item[0]
+            if len(next_item) > 2:
+                colors = next_item[2]
             if len(next_item) > 1:
                 label_and_props = next_item[1]
         else:
@@ -429,6 +448,8 @@ class Experiment:
         real_videos = Variable(real_videos)
         label_and_props = label_and_props.to(device)
         label_and_props = Variable(label_and_props)
+        colors = colors.to(device)
+        colors = Variable(colors)
 
         real_videos_frames = real_videos.shape[2]
 
@@ -438,6 +459,7 @@ class Experiment:
             "videos": real_videos,
             "img": real_img,
             "label_and_props": label_and_props,
+            "colors": colors,
         }
 
         return real_data
@@ -513,7 +535,9 @@ class Experiment:
         # label_and_props is (batch_size, n), take the first slice and get
         # a (1, n) tensor
         label_and_props = label_and_props[0][None, ...]
-        fake_data = self.get_fake_data(label_and_props=label_and_props)
+        colors = real_data["colors"]
+
+        fake_data = self.get_fake_data(label_and_props=label_and_props, colors=colors)
 
         err, mean = update_models(
             rnn_type=self.architecture,

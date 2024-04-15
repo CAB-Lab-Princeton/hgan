@@ -166,6 +166,7 @@ class Environment(ABC):
             (ndarray): Array of shape (Batch, Nframes, Height, Width, Channels).
                 Contains sampled rollouts
         """
+        ball_color = None
         if radius_bound == "auto":
             radius_bound = self.get_default_radius_bounds()
         radius_lb, radius_ub = radius_bound
@@ -183,9 +184,10 @@ class Environment(ABC):
                     * noise_level
                     * self.get_max_noise_std()
                 )
-            batch_sample.append(self._draw(img_size, color, constant_color))
+            vid, ball_color = self._draw(img_size, color, constant_color)
+            batch_sample.append(vid)
 
-        return np.array(batch_sample)
+        return np.array(batch_sample), np.array(ball_color)
 
     def physical_properties(self, vec_length, dtype=np.float32):
         if vec_length <= 0:

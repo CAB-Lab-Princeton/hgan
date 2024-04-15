@@ -2,11 +2,11 @@ import torch
 from torch.autograd import Variable, grad
 
 
-def bp_i(*, label, criterion, dis_i, inputs, label_and_props, y, retain=False):
+def bp_i(*, label, criterion, dis_i, inputs, label_props_colors, y, retain=False):
     label.resize_(inputs.size(0)).fill_(y)
     labelv = Variable(label)
 
-    outputs = dis_i(inputs, label_and_props)
+    outputs = dis_i(inputs, label_props_colors)
 
     err = criterion(outputs, labelv)
     err.backward(retain_graph=retain)
@@ -14,11 +14,11 @@ def bp_i(*, label, criterion, dis_i, inputs, label_and_props, y, retain=False):
     return err.item(), outputs  # .data.mean()
 
 
-def bp_v(*, label, criterion, dis_v, inputs, label_and_props, y, retain=False):
+def bp_v(*, label, criterion, dis_v, inputs, label_props_colors, y, retain=False):
     label.resize_(inputs.size(0)).fill_(y)
     labelv = Variable(label)
 
-    outputs = dis_v(inputs, label_and_props)
+    outputs = dis_v(inputs, label_props_colors)
 
     err = criterion(outputs, labelv)
     err.backward(retain_graph=retain)
@@ -40,7 +40,9 @@ def update_Dv(
 ):
 
     real_videos = real_data["videos"]
-    label_and_props = real_data["label_and_props"]
+    label_props_colors = torch.concat(
+        (real_data["label_and_props"], real_data["colors"]), dim=1
+    )
     fake_videos = fake_data["videos"]
 
     dis_v.zero_grad()
@@ -53,7 +55,7 @@ def update_Dv(
         criterion=criterion,
         dis_v=dis_v,
         inputs=real_videos,
-        label_and_props=label_and_props,
+        label_props_colors=label_props_colors,
         y=0.9,
         retain=True,
     )
@@ -69,7 +71,7 @@ def update_Dv(
         criterion=criterion,
         dis_v=dis_v,
         inputs=fake_videos.detach(),
-        label_and_props=label_and_props,
+        label_props_colors=label_props_colors,
         y=0,
     )
     Dv_fake_mean = fake_out.data.mean()
@@ -89,7 +91,9 @@ def update_Di(
 ):
 
     real_img = real_data["img"]
-    label_and_props = real_data["label_and_props"]
+    label_props_colors = torch.concat(
+        (real_data["label_and_props"], real_data["colors"]), dim=1
+    )
     fake_img = fake_data["img"]
 
     dis_i.zero_grad()
@@ -102,7 +106,7 @@ def update_Di(
         criterion=criterion,
         dis_i=dis_i,
         inputs=real_img,
-        label_and_props=label_and_props,
+        label_props_colors=label_props_colors,
         y=0.9,
         retain=True,
     )  # TODO: Why 0.9 and not 1.0?
@@ -118,7 +122,7 @@ def update_Di(
         criterion=criterion,
         dis_i=dis_i,
         inputs=fake_img.detach(),
-        label_and_props=label_and_props,
+        label_props_colors=label_props_colors,
         y=0,
     )
     Di_fake_mean = fake_out.data.mean()
@@ -148,7 +152,7 @@ def update_G(
     fake_data,
     optim_Gi,
     optim_RNN,
-    label_and_props
+    label_props_colors
 ):
     model_gi.zero_grad()
     model_rnn.zero_grad()
@@ -160,7 +164,7 @@ def update_G(
         criterion=criterion,
         dis_v=model_dv,
         inputs=fake_data["videos"],
-        label_and_props=label_and_props,
+        label_props_colors=label_props_colors,
         y=0.9,
         retain=True,
     )
@@ -172,7 +176,7 @@ def update_G(
             criterion=criterion,
             dis_i=model_di,
             inputs=fake_data["img"],
-            label_and_props=label_and_props,
+            label_props_colors=label_props_colors,
             y=0.9,
             retain=True,
         )
@@ -241,6 +245,10 @@ def update_models(
         fake_data=fake_data,
         optim_Di=optim_di,
     )
+
+    label_props_colors = torch.concat(
+        (real_data["label_and_props"], real_data["colors"]), dim=1
+    )
     err_G = update_G(
         rnn_type=rnn_type,
         label=label,
@@ -255,7 +263,7 @@ def update_models(
         fake_data=fake_data,
         optim_Gi=optim_gi,
         optim_RNN=optim_rnn,
-        label_and_props=real_data["label_and_props"],
+        label_props_colors=label_props_colors,
     )
 
     err = {**err_Dv, **err_Di, **err_G}

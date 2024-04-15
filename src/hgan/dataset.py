@@ -287,6 +287,7 @@ class HGNRealtimeDataset(Dataset):
         *,
         ndim_label=3,
         ndim_physics=10,
+        ndim_color=0,
         system_name=None,
         num_frames=16,
         delta=0.05,
@@ -312,6 +313,7 @@ class HGNRealtimeDataset(Dataset):
         self.train = train
         self.ndim_label = ndim_label
         self.ndim_physics = ndim_physics
+        self.ndim_color = ndim_color
         self.img_size = img_size
         self.normalize = normalize
 
@@ -357,10 +359,11 @@ class HGNRealtimeDataset(Dataset):
         # the rollout, and the rollouts are randomly initialized anyway.
 
         vid = None
+        colors = None
         # Rollouts are not guaranteed to give us self.num_frames in certain
         # cases where solve_ivp fails - keep trying till they do.
         while vid is None or vid.shape[0] != self.num_frames:
-            vids = system.sample_random_rollouts(
+            vids, colors = system.sample_random_rollouts(
                 number_of_frames=self.num_frames,
                 delta_time=self.delta,
                 number_of_rollouts=1,
@@ -386,4 +389,12 @@ class HGNRealtimeDataset(Dataset):
             )
         )
 
-        return vid.astype(np.float32), labels_and_props
+        vid = vid.astype(np.float32)
+
+        color_vec = torch.zeros(self.ndim_color)
+        colors = torch.tensor(np.array(colors).flatten().astype(np.float32))[
+            : self.ndim_color
+        ]
+        color_vec[: len(colors)] = colors
+
+        return vid, labels_and_props, color_vec

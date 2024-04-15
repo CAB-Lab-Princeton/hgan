@@ -162,7 +162,7 @@ class ChaoticPendulum(Environment):
         vid[vid > 1.0] = 1.0
         if not color:
             vid = np.expand_dims(np.max(vid, axis=-1), -1)
-        return vid
+        return vid, ball_colors
 
     def _sample_init_conditions(self, radius):
         """Samples random initial conditions for the environment

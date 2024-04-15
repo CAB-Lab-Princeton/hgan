@@ -43,20 +43,6 @@ def main():
         ] = "0"  # Run with varying colors
         run(*args)
 
-    with tempfile.TemporaryDirectory() as output_dir:
-        os.environ["HGAN_EXPERIMENT_N_EPOCH"] = "5"
-        os.environ["HGAN_EXPERIMENT_BATCH_SIZE"] = "4"
-        os.environ["HGAN_PATHS_OUTPUT"] = output_dir
-
-        logger.info("Running model against packaged .npz files")
-
-        os.environ["HGAN_EXPERIMENT_RT_DATA_GENERATOR"] = ""
-        os.environ["HGAN_EXPERIMENT_NDIM_LABEL"] = "0"
-        os.environ["HGAN_EXPERIMENT_NDIM_PHYSICS"] = "0"
-        os.environ["HGAN_EXPERIMENT_SYSTEM_NAME"] = "pendulum_colors"
-        os.environ["HGAN_PATHS_INPUT"] = data_dir
-        run(*args)
-
     # Reset envvars
     for k, v in envvars.items():
         if v is not None:

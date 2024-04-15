@@ -158,20 +158,20 @@ class Discriminator_I(nn.Module):
             nn.Sigmoid(),
         )
 
-    def forward(self, input, label_and_props):
+    def forward(self, input, label_props_colors):
         if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
             raise NotImplementedError
             # output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
         else:
             if self.n_label_and_props > 0:
-                label_and_props_input = self.label_handler(label_and_props)
+                label_props_colors_input = self.label_handler(label_props_colors)
                 # Add a new channel of shape (batch_size, 1, L, L)
                 # where L is the image size
-                label_and_props_input = label_and_props_input.reshape(
+                label_props_colors_input = label_props_colors_input.reshape(
                     -1, input.shape[-1], input.shape[-1]
                 )[:, None, :, :]
                 # Append new channel to input
-                input = torch.cat((label_and_props_input, input), dim=1)
+                input = torch.cat((label_props_colors_input, input), dim=1)
             output = self.main(input)
 
         return output.view(-1, 1).squeeze(1)
@@ -243,22 +243,22 @@ class Discriminator_V(nn.Module):
             nn.Sigmoid(),
         )
 
-    def forward(self, input, label_and_props):
+    def forward(self, input, label_props_colors):
         input_length = input.shape[2]
         input_start = np.random.randint(0, input_length - self.input_frames)
         input_end = input_start + self.input_frames
         input = input[:, :, input_start:input_end, :, :]
 
         if self.n_label_and_props > 0:
-            label_and_props_input = self.label_handler(label_and_props)
+            label_props_colors_input = self.label_handler(label_props_colors)
             # Add a new channel of shape (batch_size, 1, self.input_frames, L, L)
             # where L is the image size
-            label_and_props_input = label_and_props_input.reshape(
+            label_props_colors_input = label_props_colors_input.reshape(
                 -1, input.shape[-1], input.shape[-1]
             )[:, None, None, :, :].repeat(1, 1, self.input_frames, 1, 1)
 
             # Append new channel to input
-            input = torch.cat((label_and_props_input, input), dim=1)
+            input = torch.cat((label_props_colors_input, input), dim=1)
 
         output = self.main(input)
 
