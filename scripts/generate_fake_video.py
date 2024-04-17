@@ -2,10 +2,11 @@ import os
 import sys
 import argparse
 import logging
+import torch
 from hgan.configuration import load_config
 from hgan.experiment import Experiment
 from hgan.utils import setup_reproducibility
-
+from hgan.hgn_datasets import all_systems_hgn
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +36,36 @@ def main(*args):
 
     experiment.eval()
     experiment.load_epoch()
-    real_data = experiment.get_real_data()
-    label_and_props = real_data["label_and_props"][0]
 
-    data = experiment.get_fake_data(n_frames=16, label_and_props=label_and_props)
+    # ---------- Customize --------- #
+    system = "mass_spring"
+    system_index = all_systems_hgn.index(system)
+    label_and_props = torch.cat(
+        (
+            experiment.system_embedding(torch.tensor([system_index])).squeeze(),
+            torch.tensor([0.5, 2.0, 0, 0, 0, 0, 0, 0, 0, 0]),
+        )
+    )
+    colors = torch.tensor([1, 0, 0, 0, 0, 0, 0, 0, 0])  # red
+    # ---------- Customize --------- #
 
-    # (batch_size, nc, T, img_size, img_size) => (batch_size, T, img_size, img_size, nc)
+    label_and_props = (
+        label_and_props.unsqueeze(0)
+        .repeat(experiment.batch_size, 1)
+        .to(experiment.device)
+    )  # (batch_size, ndim_label + ndim_physics)
+    colors = (
+        colors.unsqueeze(0).repeat(experiment.batch_size, 1).to(experiment.device)
+    )  # (batch_size, ndim_color)
+    data = experiment.get_fake_data(
+        n_frames=16, label_and_props=label_and_props, colors=colors
+    )
+
+    # (1, nc, T, img_size, img_size) => (1, T, img_size, img_size, nc)
     videos = data["videos"].permute(0, 2, 3, 4, 1)
-    videos = videos.detach().cpu().numpy().squeeze()
+    video = videos.detach().cpu().numpy()[0]
 
-    experiment.save_video(folder=".", video=videos[0], filename="generated")
+    experiment.save_video(folder=".", video=video, filename="generated")
 
 
 if __name__ == "__main__":

@@ -258,7 +258,7 @@ class Experiment:
         eps = Variable(torch.randn(batch_size, d_E))
         eps = eps.to(device)
         if label_and_props is not None:
-            eps = torch.cat((label_and_props.repeat(batch_size, 1), eps), dim=1)
+            eps = torch.cat([label_and_props, eps], dim=1)
         rnn.initHidden(batch_size)
         # notice that 1st dim of gru outputs is seq_len, 2nd is batch_size
         z_M, dz_M = rnn(eps, n_frames)
@@ -281,7 +281,9 @@ class Experiment:
         n_frames,
         label_and_props=None,
     ):
-        z_C = self.get_random_content_vector(batch_size, d_C, device, n_frames)
+        z_C = self.get_random_content_vector(
+            batch_size, d_C, device, n_frames
+        )  # (batch_size, n_frames, ndim_content)
         z_M, dz_M = self.compute_phase_space_motion_vector(
             batch_size=batch_size,
             d_E=d_E,
@@ -471,6 +473,7 @@ class Experiment:
         max_videos=None,
         device="cpu",
         label_and_props=None,
+        colors=None,
     ):
 
         if real_videos is None:
@@ -478,15 +481,22 @@ class Experiment:
             real_videos = real_data[
                 "videos"
             ]  # (batch_size, n_channels, n_frames, height, width)
-            label_and_props = real_data["label_and_props"][0, ...][None, :]
+            label_and_props = real_data[
+                "label_and_props"
+            ]  # (batch_size, 1, ndim_label+ndim_physics)
+            colors = real_data["colors"]  # (batch_size, 1, ndim_color)
+
         if fake_videos is None:
-            fake_videos = self.get_fake_data(label_and_props=label_and_props)[
+            fake_data = self.get_fake_data(
+                label_and_props=label_and_props, colors=colors
+            )
+            fake_videos = fake_data[
                 "videos"
             ]  # (batch_size, n_channels, n_frames, height, width)
 
-        # Use shape (batch_size, n_frames, n_channels, height, width)
-        real_videos = real_videos.permute(0, 2, 1, 3, 4).detach().cpu().numpy()
-        fake_videos = fake_videos.permute(0, 2, 1, 3, 4).detach().cpu().numpy()
+        # Use shape (samples, n_frames, n_channels, height, width)
+        real_videos = real_videos.detach().cpu().numpy().transpose(0, 2, 1, 3, 4)
+        fake_videos = fake_videos.detach().cpu().numpy().transpose(0, 2, 1, 3, 4)
 
         with importlib.resources.path(hgan.data, "i3d_torchscript.pt") as i3d_path:
             detector = torch.jit.load(i3d_path).eval().to(device)
@@ -532,9 +542,6 @@ class Experiment:
     def train_step(self):
         real_data = self.get_real_data()
         label_and_props = real_data["label_and_props"]
-        # label_and_props is (batch_size, n), take the first slice and get
-        # a (1, n) tensor
-        label_and_props = label_and_props[0][None, ...]
         colors = real_data["colors"]
 
         fake_data = self.get_fake_data(label_and_props=label_and_props, colors=colors)
@@ -581,9 +588,7 @@ class Experiment:
             err, mean, real_data, fake_data = self.train_step()
 
             real_videos = real_data["videos"]
-            first_real_video = real_videos[0].data.cpu().numpy().transpose(1, 2, 3, 0)
             fake_videos = fake_data["videos"]
-            first_fake_video = fake_videos[0].data.cpu().numpy().transpose(1, 2, 3, 0)
 
             last_epoch = epoch == self.n_epoch
 
@@ -612,7 +617,7 @@ class Experiment:
             if epoch % self.save_fake_video_every == 0 or last_epoch:
                 self.save_video(
                     self.config.paths.output,
-                    first_fake_video,
+                    fake_videos[0].detach().cpu().numpy().transpose(1, 2, 3, 0),
                     epoch=epoch,
                     prefix="fake_",
                 )
@@ -620,7 +625,7 @@ class Experiment:
             if epoch % self.save_real_video_every == 0 or last_epoch:
                 self.save_video(
                     self.config.paths.output,
-                    first_real_video,
+                    real_videos[0].detach().cpu().numpy().transpose(1, 2, 3, 0),
                     epoch=epoch,
                     prefix="real_",
                 )

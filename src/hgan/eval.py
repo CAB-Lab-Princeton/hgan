@@ -86,16 +86,19 @@ def qualitative_results_img(
     epoch=None,
     save_video=False,
     label_and_props=None,
+    colors=None,
 ):
-    data = (
-        experiment.get_fake_data(label_and_props=label_and_props)
+    videos = (
+        experiment.get_fake_data(label_and_props=label_and_props, colors=colors)
         if fake
         else experiment.get_real_data()
-    )
+    )["videos"][
+        :samples, ...
+    ]  # (samples, nc, T, img_size, img_size)
+    videos = videos.detach().cpu().numpy()
 
-    # (batch_size, nc, T, img_size, img_size) => (batch_size, T, img_size, img_size, nc)
-    videos = data["videos"].permute(0, 2, 3, 4, 1)
-    videos = videos.detach().cpu().numpy().squeeze()
+    # (samples, nc, T, img_size, img_size) => (samples, T, img_size, img_size, nc)
+    videos = videos.transpose(0, 2, 3, 4, 1)
 
     if save_video:
         experiment.save_video(
@@ -131,12 +134,12 @@ def qualitative_results_img(
 
 def qualitative_results_latent(
     experiment,
-    batch_size,
+    label_and_props,
     png_path,
     perplexity_values=(2, 5, 30, 50, 100),
     title="",
-    label_and_props=None,
 ):
+    batch_size = label_and_props.shape[0]
     Z, _ = experiment.get_latent_sample(
         batch_size=batch_size, n_frames=1, label_and_props=label_and_props
     )  # shape (batch_size, n_frames, |ndim_q + ndim_p + ndim_content + ndim_label|, 1, 1)
@@ -179,20 +182,27 @@ def main(*args):
     saved_epochs = experiment.saved_epochs()
 
     real_data = experiment.get_real_data()
-    label_and_props = real_data["label_and_props"][0, ...][None, :]
+    label_and_props = real_data["label_and_props"]
+    colors = real_data["colors"]  # (batch_size, ndim_color)
 
     for epoch in saved_epochs[:: args.every_nth]:
         logger.info(f"Processing epoch {epoch}")
         experiment.load_epoch(epoch, device=device)
 
         Z, _ = experiment.get_latent_sample(
-            batch_size=1,
+            batch_size=config.experiment.batch_size,
             n_frames=config.video.generator_frames,
             label_and_props=label_and_props,
         )
         Z_motion = Z[0, :, : experiment.ndim_epsilon, :, :].squeeze()
         hnn_input = torch.concat(
-            (Z_motion, label_and_props.repeat(config.video.generator_frames, 1)), axis=1
+            (
+                Z_motion,
+                label_and_props[0]
+                .unsqueeze(0)
+                .repeat(config.video.generator_frames, 1),
+            ),
+            axis=1,
         )
         energy = experiment.rnn.hnn(hnn_input)
         std_energy = float(torch.std(energy.squeeze()))
@@ -211,15 +221,17 @@ def main(*args):
             save_video=True,
             fake=True,
             label_and_props=label_and_props,
+            colors=colors,
         )
 
         logger.info("  Generating Latent Features Image")
+        # For the first label_and_props sampled 1024 times from the latent space,
+        # plot the TSNE embedding of the q part of the latent space
         qualitative_results_latent(
             experiment=experiment,
-            batch_size=args.latent_batch_size,
+            label_and_props=label_and_props[0].unsqueeze(0).repeat(1024, 1),
             png_path=f"{output_folder}/config_{epoch:06d}.png",
             title=f"Epoch {epoch}",
-            label_and_props=label_and_props,
         )
 
         if args.calculate_fvd:
