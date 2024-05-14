@@ -160,7 +160,7 @@ class NObjectGravity(Environment):
         for t in range(length):
             for n in range(self.n_objects):
                 brush = self.colors[n]
-                if brush == "y":
+                if brush == "r":
                     vid[t] = cv2.circle(
                         vid[t],
                         self._world_to_pixels(q[n, 0, t], q[n, 1, t], res),
@@ -168,7 +168,7 @@ class NObjectGravity(Environment):
                         ball_colors[0],
                         -1,
                     )
-                elif brush == "r":
+                elif brush == "y":
                     vid[t] = cv2.circle(
                         vid[t],
                         self._world_to_pixels(q[n, 0, t], q[n, 1, t], res),
@@ -176,6 +176,7 @@ class NObjectGravity(Environment):
                         ball_colors[1],
                         -1,
                     )
+
                 elif brush == "g":
                     vid[t] = cv2.circle(
                         vid[t],

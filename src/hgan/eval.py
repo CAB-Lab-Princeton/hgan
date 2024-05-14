@@ -181,13 +181,13 @@ def main(*args):
 
     saved_epochs = experiment.saved_epochs()
 
-    real_data = experiment.get_real_data()
-    label_and_props = real_data["label_and_props"]
-    colors = real_data["colors"]  # (batch_size, ndim_color)
-
     for epoch in saved_epochs[:: args.every_nth]:
         logger.info(f"Processing epoch {epoch}")
         experiment.load_epoch(epoch, device=device)
+
+        real_data = experiment.get_real_data()
+        label_and_props = real_data["label_and_props"]
+        colors = real_data["colors"]  # (batch_size, ndim_color)
 
         Z, _ = experiment.get_latent_sample(
             batch_size=config.experiment.batch_size,
