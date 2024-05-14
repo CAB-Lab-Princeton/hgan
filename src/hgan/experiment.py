@@ -564,6 +564,8 @@ class Experiment:
             optim_rnn=self.optim_rnn,
             real_data=real_data,
             fake_data=fake_data,
+            discriminator_gamma=self.discriminator_gamma,
+            generator_gamma=self.generator_gamma,
         )
 
         return err, mean, real_data, fake_data
@@ -650,6 +652,7 @@ class ExperimentOld(Experiment):
                 return 0
             epoch = saved_epochs[-1]
 
+        logger.info(f"Loading model from epoch {epoch}")
         names = {
             "Di": "Discriminator_I",
             "Dv": "Discriminator_V",

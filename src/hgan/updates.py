@@ -36,7 +36,16 @@ def r1_loss(r1_gamma, real_out, real_input):
 
 
 def update_Dv(
-    *, rnn_type, label, criterion, r1_gamma, dis_v, real_data, fake_data, optim_Dv
+    *,
+    rnn_type,
+    label,
+    criterion,
+    r1_gamma,
+    dis_v,
+    real_data,
+    fake_data,
+    optim_Dv,
+    gamma=0.9
 ):
 
     real_videos = real_data["videos"]
@@ -56,7 +65,7 @@ def update_Dv(
         dis_v=dis_v,
         inputs=real_videos,
         label_props_colors=label_props_colors,
-        y=0.9,
+        y=gamma,
         retain=True,
     )
     Dv_real_mean = real_out.data.mean()
@@ -87,7 +96,16 @@ def update_Dv(
 
 
 def update_Di(
-    *, rnn_type, label, criterion, r1_gamma, dis_i, real_data, fake_data, optim_Di
+    *,
+    rnn_type,
+    label,
+    criterion,
+    r1_gamma,
+    dis_i,
+    real_data,
+    fake_data,
+    optim_Di,
+    gamma=0.9
 ):
 
     real_img = real_data["img"]
@@ -107,9 +125,9 @@ def update_Di(
         dis_i=dis_i,
         inputs=real_img,
         label_props_colors=label_props_colors,
-        y=0.9,
+        y=gamma,
         retain=True,
-    )  # TODO: Why 0.9 and not 1.0?
+    )
     Di_real_mean = real_out.data.mean()
 
     # https://github.com/rosinality/style-based-gan-pytorch/blob/a3d000e707b70d1a5fc277912dc9d7432d6e6069/train.py
@@ -152,7 +170,8 @@ def update_G(
     fake_data,
     optim_Gi,
     optim_RNN,
-    label_props_colors
+    label_props_colors,
+    gamma=0.9
 ):
     model_gi.zero_grad()
     model_rnn.zero_grad()
@@ -165,7 +184,7 @@ def update_G(
         dis_v=model_dv,
         inputs=fake_data["videos"],
         label_props_colors=label_props_colors,
-        y=0.9,
+        y=gamma,
         retain=True,
     )
     # images
@@ -177,7 +196,7 @@ def update_G(
             dis_i=model_di,
             inputs=fake_data["img"],
             label_props_colors=label_props_colors,
-            y=0.9,
+            y=gamma,
             retain=True,
         )
     else:  # gru
@@ -186,7 +205,7 @@ def update_G(
             criterion=criterion,
             dis_i=model_di,
             inputs=fake_data["img"],
-            y=0.9,
+            y=gamma,
             retain=False,
         )
 
@@ -223,7 +242,9 @@ def update_models(
     optim_gi,
     optim_rnn,
     real_data,
-    fake_data
+    fake_data,
+    discriminator_gamma=0.9,
+    generator_gamma=0.9
 ):
     err_Dv, mean_Dv = update_Dv(
         rnn_type=rnn_type,
@@ -234,6 +255,7 @@ def update_models(
         real_data=real_data,
         fake_data=fake_data,
         optim_Dv=optim_dv,
+        gamma=discriminator_gamma,
     )
     err_Di, mean_Di = update_Di(
         rnn_type=rnn_type,
@@ -244,6 +266,7 @@ def update_models(
         real_data=real_data,
         fake_data=fake_data,
         optim_Di=optim_di,
+        gamma=discriminator_gamma,
     )
 
     label_props_colors = torch.concat(
@@ -264,6 +287,7 @@ def update_models(
         optim_Gi=optim_gi,
         optim_RNN=optim_rnn,
         label_props_colors=label_props_colors,
+        gamma=generator_gamma,
     )
 
     err = {**err_Dv, **err_Di, **err_G}

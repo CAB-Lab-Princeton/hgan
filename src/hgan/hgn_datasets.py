@@ -42,6 +42,7 @@ constant_physics_hgn = {
     },
 }
 
+# TODO: move keys to the same order as in the respective constructor
 variable_physics_hgn = {
     "mass_spring": {"elastic_cst": BoxRegion(2.0, 2.0), "mass": BoxRegion(0.2, 1.0)},
     "pendulum": {
