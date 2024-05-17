@@ -10,6 +10,8 @@ import torch
 from sklearn.manifold import TSNE
 from hgan.configuration import load_config
 from hgan.experiment import Experiment
+from hgan.hgn_datasets import all_systems_hgn, variable_physics_hgn
+from hgan.hgn.environments.environment_factory import EnvFactory
 
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,12 @@ def get_parser():
         action="store_true",
         default=False,
         help="Whether to run FVD on cpu (for low memory GPUs; default False)",
+    )
+    parser.add_argument(
+        "--system_name",
+        type=str,
+        default="mass_spring",
+        help="The system to run the eval on.",
     )
     return parser
 
@@ -179,15 +187,41 @@ def main(*args):
     experiment = Experiment(config)
     experiment.eval()
 
-    saved_epochs = experiment.saved_epochs()
+    system_index = all_systems_hgn.index(args.system_name)
+    system_args = variable_physics_hgn[args.system_name]
+    system_args = {
+        k: (v() if not isinstance(v, list) else [_v() for _v in v])
+        for k, v in system_args.items()
+    }
+    system = EnvFactory.get_environment(
+        experiment.dataloader.dataset.system_name_mapping[args.system_name],
+        **system_args,
+    )
+    props = torch.tensor(system.physical_properties(vec_length=experiment.ndim_physics))
 
+    colors = torch.tensor([1, 0, 0, 0, 1, 0, 0, 0, 1])  # rgbrgbrgb
+    colors = (
+        colors.unsqueeze(0).repeat(experiment.batch_size, 1).to(experiment.device)
+    )  # (batch_size, ndim_color)
+
+    saved_epochs = experiment.saved_epochs()
     for epoch in saved_epochs[:: args.every_nth]:
+
         logger.info(f"Processing epoch {epoch}")
         experiment.load_epoch(epoch, device=device)
 
-        real_data = experiment.get_real_data()
-        label_and_props = real_data["label_and_props"]
-        colors = real_data["colors"]  # (batch_size, ndim_color)
+        label_and_props = torch.cat(
+            (
+                experiment.system_embedding(torch.tensor([system_index])).squeeze(),
+                props,
+            )
+        )
+
+        label_and_props = (
+            label_and_props.unsqueeze(0)
+            .repeat(experiment.batch_size, 1)
+            .to(experiment.device)
+        )  # (batch_size, ndim_label + ndim_physics)
 
         Z, _ = experiment.get_latent_sample(
             batch_size=config.experiment.batch_size,
