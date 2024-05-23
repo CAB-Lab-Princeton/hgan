@@ -5,7 +5,7 @@ import logging
 from hgan.run import main as run
 import hgan.data
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("hgan")
 this_dir = os.path.dirname(__file__)
 data_dir = os.path.dirname(hgan.data.__file__)
 

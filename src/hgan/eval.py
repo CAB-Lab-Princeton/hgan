@@ -12,7 +12,7 @@ from hgan.configuration import load_config
 from hgan.experiment import Experiment
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("hgan")
 matplotlib.use("agg")
 
 
