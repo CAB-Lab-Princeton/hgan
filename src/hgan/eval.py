@@ -14,7 +14,7 @@ from hgan.hgn_datasets import all_systems_hgn, variable_physics_hgn
 from hgan.hgn.environments.environment_factory import EnvFactory
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("hgan")
 matplotlib.use("agg")
 
 
