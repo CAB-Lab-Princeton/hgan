@@ -146,9 +146,11 @@ class Experiment:
             n_label_and_props=n_label_and_props,
         ).to(self.device)
         self.Gi = Generator_I(
-            self.ndim_channel,
-            self.ndim_generator_filter,
-            self.nz + self.ndim_label + self.ndim_color,
+            nc=self.ndim_channel,
+            ngf=self.ndim_generator_filter,
+            nz=self.nz,
+            n_frames=self.config.video.generator_frames,
+            n_label_color=self.ndim_label + self.ndim_color,
             ngpu=self.ngpu,
         ).to(self.device)
 
@@ -395,20 +397,10 @@ class Experiment:
         Z = self.trim_video(video=Z, n_frame=n_frames)
         Z_reshape = Z.contiguous().view(self.batch_size * n_frames, self.nz, 1, 1)
 
-        # Append label+color information; duplicating it for each frame
-        # (batch_size, n) => (batch_size * n_frames, n, 1, 1)
-
         label = label_and_props[:, : self.ndim_label]
         label_and_colors = torch.cat((label, colors), dim=1)
-        label_and_colors_reshape = (
-            label_and_colors.unsqueeze(1)
-            .repeat(1, n_frames, 1)
-            .contiguous()
-            .view(self.batch_size * n_frames, -1, 1, 1)
-        )
-        Z_reshape = torch.cat((Z_reshape, label_and_colors_reshape), dim=1)
 
-        fake_videos = self.Gi(Z_reshape)
+        fake_videos = self.Gi(Z_reshape, label_and_colors)
 
         fake_videos = fake_videos.view(
             self.batch_size, n_frames, self.ndim_channel, self.img_size, self.img_size
