@@ -255,17 +255,19 @@ class Experiment:
     def compute_phase_space_motion_vector(
         self, batch_size, d_E, d_L, d_P, device, dataset, n_frames, rnn, label_and_props
     ):
-        eps = Variable(torch.randn(batch_size, d_E))
-        eps = eps.to(device)
+        eps_motion = Variable(torch.randn(batch_size, d_E))
+        eps_motion = eps_motion.to(device)
         if label_and_props is not None:
-            eps = torch.cat([label_and_props, eps], dim=1)
+            eps = torch.cat([label_and_props, eps_motion], dim=1)
+        else:
+            eps = eps_motion
         rnn.initHidden(batch_size)
         # notice that 1st dim of gru outputs is seq_len, 2nd is batch_size
         z_M, dz_M = rnn(eps, n_frames)
         z_M = z_M.transpose(1, 0)
         if dz_M is not None:
             dz_M = dz_M.transpose(1, 0)
-        return z_M, dz_M
+        return z_M, dz_M, eps_motion
 
     def get_phase_space_sample(
         self,
@@ -284,7 +286,7 @@ class Experiment:
         z_C = self.get_random_content_vector(
             batch_size, d_C, device, n_frames
         )  # (batch_size, n_frames, ndim_content)
-        z_M, dz_M = self.compute_phase_space_motion_vector(
+        z_M, dz_M, eps_motion = self.compute_phase_space_motion_vector(
             batch_size=batch_size,
             d_E=d_E,
             d_L=d_L,
@@ -297,7 +299,7 @@ class Experiment:
         )
         z = torch.cat((z_M, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
 
-        return z.view(batch_size, n_frames, nz, 1, 1), dz_M
+        return z.view(batch_size, n_frames, nz, 1, 1), dz_M, eps_motion
 
     def compute_simple_motion_vector(self, batch_size, d_E, device, n_frames, rnn):
         eps = Variable(torch.randn(batch_size, d_E))
@@ -386,7 +388,7 @@ class Experiment:
     def get_fake_data(self, n_frames=None, label_and_props=None, colors=None):
         n_frames = n_frames or self.config.video.generator_frames
         # Z.size() => (batch_size, n_frames, nz, 1, 1)
-        Z, dz = self.get_latent_sample(
+        Z, dz, _ = self.get_latent_sample(
             batch_size=self.batch_size,
             n_frames=n_frames,
             label_and_props=label_and_props,
