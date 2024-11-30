@@ -267,13 +267,20 @@ class Discriminator_V(nn.Module):
 
 # see: _netG in https://github.com/pytorch/examples/blob/master/dcgan/main.py
 class Generator_I(nn.Module):
-    def __init__(self, nc=3, ngf=64, nz=60, ngpu=1):
+    def __init__(self, nc=3, ngf=64, nz=60, n_frames=30, n_label_color=12, ngpu=1):
         super(Generator_I, self).__init__()
+        self.n_frames = n_frames
+        self.n_label_color = n_label_color
         self.ngpu = ngpu
+
+        self.label_color_handler = nn.Linear(
+            in_features=n_label_color, out_features=n_label_color
+        )
+
         self.main = nn.Sequential(
             # nz x 1 x 1
             nn.ConvTranspose2d(
-                in_channels=nz,
+                in_channels=nz + n_label_color,
                 out_channels=ngf * 8,
                 kernel_size=6,
                 stride=1,
@@ -328,10 +335,21 @@ class Generator_I(nn.Module):
             nn.Tanh(),
         )
 
-    def forward(self, input):
+    def forward(self, input, label_colors):
         if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
+            raise NotImplementedError
+            # output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
         else:
+            if self.n_label_color > 0:
+                batch_size = input.shape[0]
+                label_colors_input = self.label_color_handler(label_colors)
+                label_colors_input = (
+                    label_colors_input.unsqueeze(1)
+                    .repeat(1, self.n_frames, 1)
+                    .contiguous()
+                    .view(batch_size, -1, 1, 1)
+                )
+                input = torch.cat((input, label_colors_input), dim=1)
             output = self.main(input)
         return output
 
